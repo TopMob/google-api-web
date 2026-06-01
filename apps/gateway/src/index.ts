@@ -365,7 +365,7 @@ server.post("/v1/chat/completions", async (request, reply) => {
   const cid = `chatcmpl-${uuidv4().replace(/-/g, "").substring(0, 12)}`;
   const startTime = Date.now();
 
-  if (stream && !req.tools) {
+  if (stream) {
     reply.raw.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
@@ -373,166 +373,257 @@ server.post("/v1/chat/completions", async (request, reply) => {
       "Access-Control-Allow-Origin": "*"
     });
 
-    let responseText = "";
+    if (!req.tools) {
+      let responseText = "";
 
-    try {
-      const inner = new Array(80).fill(null);
-      inner[0] = [prompt, 0, null, null, null, null, 0];
-      inner[1] = ["en"];
-      inner[2] = ["", "", "", null, null, null, null, null, null, ""];
-      inner[6] = [0];
-      inner[7] = 1;
-      inner[10] = 1;
-      inner[11] = 0;
-      inner[17] = [[cfg.think]];
-      inner[18] = 0;
-      inner[27] = 1;
-      inner[30] = [4];
-      inner[41] = [2];
-      inner[53] = 0;
-      inner[59] = uuidv4();
-      inner[61] = [];
-      inner[68] = 1;
-      inner[79] = cfg.mode;
+      try {
+        const inner = new Array(80).fill(null);
+        inner[0] = [prompt, 0, null, null, null, null, 0];
+        inner[1] = ["en"];
+        inner[2] = ["", "", "", null, null, null, null, null, null, ""];
+        inner[6] = [0];
+        inner[7] = 1;
+        inner[10] = 1;
+        inner[11] = 0;
+        inner[17] = [[cfg.think]];
+        inner[18] = 0;
+        inner[27] = 1;
+        inner[30] = [4];
+        inner[41] = [2];
+        inner[53] = 0;
+        inner[59] = uuidv4();
+        inner[61] = [];
+        inner[68] = 1;
+        inner[79] = cfg.mode;
 
-      const outer = [null, JSON.stringify(inner)];
-      const bodyParams = new URLSearchParams();
-      bodyParams.append("f.req", JSON.stringify(outer));
+        const outer = [null, JSON.stringify(inner)];
+        const bodyParams = new URLSearchParams();
+        bodyParams.append("f.req", JSON.stringify(outer));
 
-      const reqid = Math.floor(Date.now() / 1000) % 1000000;
-      const prefix = AUTH_USER ? `/u/${AUTH_USER}` : "";
-      const url = `https://gemini.google.com${prefix}/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate?bl=${GEMINI_BL}&hl=en&_reqid=${reqid}&rt=c`;
+        const reqid = Math.floor(Date.now() / 1000) % 1000000;
+        const prefix = AUTH_USER ? `/u/${AUTH_USER}` : "";
+        const url = `https://gemini.google.com${prefix}/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate?bl=${GEMINI_BL}&hl=en&_reqid=${reqid}&rt=c`;
 
-      const headers: Record<string, string> = {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Origin": "https://gemini.google.com",
-        "Referer": `https://gemini.google.com${prefix}/app`,
-        "X-Same-Domain": "1",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-      };
+        const headers: Record<string, string> = {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Origin": "https://gemini.google.com",
+          "Referer": `https://gemini.google.com${prefix}/app`,
+          "X-Same-Domain": "1",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        };
 
-      if (AUTH_USER) {
-        headers["X-Goog-AuthUser"] = String(AUTH_USER);
-      }
+        if (AUTH_USER) {
+          headers["X-Goog-AuthUser"] = String(AUTH_USER);
+        }
 
-      const { cookieStr, sapisid } = loadCookie();
-      if (cookieStr) {
-        headers["Cookie"] = cookieStr;
-      }
-      if (sapisid) {
-        headers["Authorization"] = makeSapisidHash(sapisid);
-      }
+        const { cookieStr, sapisid } = loadCookie();
+        if (cookieStr) {
+          headers["Cookie"] = cookieStr;
+        }
+        if (sapisid) {
+          headers["Authorization"] = makeSapisidHash(sapisid);
+        }
 
-      const response = await fetch(url, {
-        method: "POST",
-        headers,
-        body: bodyParams.toString()
-      });
+        const response = await fetch(url, {
+          method: "POST",
+          headers,
+          body: bodyParams.toString()
+        });
 
-      if (!response.ok) {
-        throw new Error(`Upstream returned ${response.status}`);
-      }
+        if (!response.ok) {
+          throw new Error(`Upstream returned ${response.status}`);
+        }
 
-      const reader = response.body?.getReader();
-      if (!reader) {
-        throw new Error("No response body stream");
-      }
+        const reader = response.body?.getReader();
+        if (!reader) {
+          throw new Error("No response body stream");
+        }
 
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let prevText = "";
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let prevText = "";
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
 
-        for (const line of lines) {
-          if (!line.includes('"wrb.fr"') || line.length < 200) {
-            continue;
-          }
-          try {
-            const arr = JSON.parse(line);
-            const innerStr = arr[0][2];
-            if (!innerStr || innerStr.length < 50) continue;
-            const inner2 = JSON.parse(innerStr);
-            if (Array.isArray(inner2) && inner2[4]) {
-              for (const part of inner2[4]) {
-                if (Array.isArray(part) && part[1] && Array.isArray(part[1])) {
-                  for (const t of part[1]) {
-                    if (typeof t === "string" && t.length > prevText.length) {
-                      let delta = t.substring(prevText.length);
-                      delta = cleanGeminiText(delta);
-                      if (delta) {
-                        responseText += delta;
-                        const chunk = {
-                          id: cid,
-                          object: "chat.completion.chunk",
-                          created: Math.floor(Date.now() / 1000),
-                          model: modelName,
-                          choices: [{ index: 0, delta: { content: delta }, finish_reason: null }]
-                        };
-                        reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
+          for (const line of lines) {
+            if (!line.includes('"wrb.fr"') || line.length < 200) {
+              continue;
+            }
+            try {
+              const arr = JSON.parse(line);
+              const innerStr = arr[0][2];
+              if (!innerStr || innerStr.length < 50) continue;
+              const inner2 = JSON.parse(innerStr);
+              if (Array.isArray(inner2) && inner2[4]) {
+                for (const part of inner2[4]) {
+                  if (Array.isArray(part) && part[1] && Array.isArray(part[1])) {
+                    for (const t of part[1]) {
+                      if (typeof t === "string" && t.length > prevText.length) {
+                        let delta = t.substring(prevText.length);
+                        delta = cleanGeminiText(delta);
+                        if (delta) {
+                          responseText += delta;
+                          const chunk = {
+                            id: cid,
+                            object: "chat.completion.chunk",
+                            created: Math.floor(Date.now() / 1000),
+                            model: modelName,
+                            choices: [{ index: 0, delta: { content: delta }, finish_reason: null }]
+                          };
+                          reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
+                        }
+                        prevText = t;
                       }
-                      prevText = t;
                     }
                   }
                 }
               }
-            }
-          } catch {}
+            } catch {}
+          }
         }
+
+        const finalChunk = {
+          id: cid,
+          object: "chat.completion.chunk",
+          created: Math.floor(Date.now() / 1000),
+          model: modelName,
+          choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
+        };
+        reply.raw.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
+        reply.raw.write("data: [DONE]\n\n");
+        reply.raw.end();
+
+        const durationMs = Date.now() - startTime;
+        await logUsage(
+          auth.projectId!,
+          auth.apiKeyId!,
+          modelName,
+          Math.floor(prompt.length / 4),
+          Math.floor(responseText.length / 4),
+          durationMs,
+          200
+        );
+      } catch (e) {
+        logger.error({ err: e }, "Streaming error");
+        const errChunk = {
+          id: cid,
+          object: "chat.completion.chunk",
+          created: Math.floor(Date.now() / 1000),
+          model: modelName,
+          choices: [{ index: 0, delta: { content: `[Gateway Error: ${e instanceof Error ? e.message : String(e)}]` }, finish_reason: "stop" }]
+        };
+        reply.raw.write(`data: ${JSON.stringify(errChunk)}\n\n`);
+        reply.raw.write("data: [DONE]\n\n");
+        reply.raw.end();
+
+        const durationMs = Date.now() - startTime;
+        await logUsage(
+          auth.projectId!,
+          auth.apiKeyId!,
+          modelName,
+          Math.floor(prompt.length / 4),
+          0,
+          durationMs,
+          500
+        );
       }
+      return reply;
+    } else {
+      try {
+        const raw = await geminiStreamGenerate(prompt, cfg.mode, cfg.think);
+        const text = extractResponseText(raw);
+        const { cleanText, toolCalls } = parseToolCalls(text);
 
-      const finalChunk = {
-        id: cid,
-        object: "chat.completion.chunk",
-        created: Math.floor(Date.now() / 1000),
-        model: modelName,
-        choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
-      };
-      reply.raw.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
-      reply.raw.write("data: [DONE]\n\n");
-      reply.raw.end();
+        if (cleanText) {
+          const chunk = {
+            id: cid,
+            object: "chat.completion.chunk",
+            created: Math.floor(Date.now() / 1000),
+            model: modelName,
+            choices: [{ index: 0, delta: { content: cleanText }, finish_reason: null }]
+          };
+          reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
+        }
 
-      const durationMs = Date.now() - startTime;
-      await logUsage(
-        auth.projectId!,
-        auth.apiKeyId!,
-        modelName,
-        Math.floor(prompt.length / 4),
-        Math.floor(responseText.length / 4),
-        durationMs,
-        200
-      );
-    } catch (e) {
-      logger.error({ err: e }, "Streaming error");
-      const errChunk = {
-        id: cid,
-        object: "chat.completion.chunk",
-        created: Math.floor(Date.now() / 1000),
-        model: modelName,
-        choices: [{ index: 0, delta: { content: `[Gateway Error: ${e instanceof Error ? e.message : String(e)}]` }, finish_reason: "stop" }]
-      };
-      reply.raw.write(`data: ${JSON.stringify(errChunk)}\n\n`);
-      reply.raw.write("data: [DONE]\n\n");
-      reply.raw.end();
+        if (toolCalls) {
+          const chunk = {
+            id: cid,
+            object: "chat.completion.chunk",
+            created: Math.floor(Date.now() / 1000),
+            model: modelName,
+            choices: [{
+              index: 0,
+              delta: {
+                tool_calls: toolCalls.map((tc, idx) => ({
+                  index: idx,
+                  id: tc.id,
+                  type: "function",
+                  function: {
+                    name: tc.function.name,
+                    arguments: tc.function.arguments
+                  }
+                }))
+              },
+              finish_reason: null
+            }]
+          };
+          reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
+        }
 
-      const durationMs = Date.now() - startTime;
-      await logUsage(
-        auth.projectId!,
-        auth.apiKeyId!,
-        modelName,
-        Math.floor(prompt.length / 4),
-        0,
-        durationMs,
-        500
-      );
+        const finish = toolCalls ? "tool_calls" : "stop";
+        const finalChunk = {
+          id: cid,
+          object: "chat.completion.chunk",
+          created: Math.floor(Date.now() / 1000),
+          model: modelName,
+          choices: [{ index: 0, delta: {}, finish_reason: finish }]
+        };
+        reply.raw.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
+        reply.raw.write("data: [DONE]\n\n");
+        reply.raw.end();
+
+        const durationMs = Date.now() - startTime;
+        await logUsage(
+          auth.projectId!,
+          auth.apiKeyId!,
+          modelName,
+          Math.floor(prompt.length / 4),
+          Math.floor((cleanText || "").length / 4),
+          durationMs,
+          200
+        );
+      } catch (e) {
+        logger.error({ err: e }, "Streaming error with tools");
+        const errChunk = {
+          id: cid,
+          object: "chat.completion.chunk",
+          created: Math.floor(Date.now() / 1000),
+          model: modelName,
+          choices: [{ index: 0, delta: { content: `[Gateway Error: ${e instanceof Error ? e.message : String(e)}]` }, finish_reason: "stop" }]
+        };
+        reply.raw.write(`data: ${JSON.stringify(errChunk)}\n\n`);
+        reply.raw.write("data: [DONE]\n\n");
+        reply.raw.end();
+
+        const durationMs = Date.now() - startTime;
+        await logUsage(
+          auth.projectId!,
+          auth.apiKeyId!,
+          modelName,
+          Math.floor(prompt.length / 4),
+          0,
+          durationMs,
+          500
+        );
+      }
+      return reply;
     }
-    return reply;
   }
 
   try {
