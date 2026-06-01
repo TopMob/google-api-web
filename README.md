@@ -5,9 +5,9 @@
 ## Ссылки проекта
 
 * **GitHub:** [TopMob/google-api-web](https://github.com/TopMob/google-api-web)
-* **Панель управления (Vercel):** [TBD]()
-* **Проект на Vercel:** [TBD]()
-* **API Gateway (Railway):** [TBD]()
+* **Панель управления (Vercel):** [google-api-web.vercel.app](https://google-api-web.vercel.app/)
+* **Проект на Vercel:** [topmobs-projects/google-api-web](https://vercel.com/topmobs-projects/google-api-web)
+* **API Gateway (Railway):** [gatewayapi-production-22ba.up.railway.app](https://gatewayapi-production-22ba.up.railway.app)
 
 ---
 
@@ -37,7 +37,7 @@
 
 ## API Endpoints
 
-Все запросы должны направляться к шлюзу на Railway: `https://<GATEWAY_URL>/v1`
+Все запросы должны направляться к шлюзу на Railway: `https://gatewayapi-production-22ba.up.railway.app/v1`
 
 ### 1. `GET /v1/models`
 Получение списка всех доступных моделей.
@@ -62,7 +62,7 @@ import OpenAI from "openai";
 
 const openai = new OpenAI({
   apiKey: "sk-personal-gw", // Ваш API-ключ из панели управления
-  baseURL: "https://<GATEWAY_URL>/v1"
+  baseURL: "https://gatewayapi-production-22ba.up.railway.app/v1"
 });
 
 const response = await openai.chat.completions.create({
@@ -75,7 +75,7 @@ console.log(response.choices[0].message.content);
 ### Пример через cURL
 
 ```bash
-curl -X POST "https://<GATEWAY_URL>/v1/chat/completions" \
+curl -X POST "https://gatewayapi-production-22ba.up.railway.app/v1/chat/completions" \
   -H "Authorization: Bearer sk-personal-gw" \
   -H "Content-Type: application/json" \
   -d '{
