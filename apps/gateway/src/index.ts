@@ -7,6 +7,8 @@ import { v4 as uuidv4 } from "uuid";
 import pino from "pino";
 import { MODELS } from "@gateway/shared";
 import { createClient } from "@supabase/supabase-js";
+import { z } from "zod";
+import { Redis } from "ioredis";
 
 dotenv.config();
 
@@ -26,6 +28,13 @@ const RETRY_DELAY_SEC = parseInt(process.env.RETRY_DELAY_SEC || "2", 10);
 const supabaseUrl = process.env.SUPABASE_URL || "";
 const supabaseKey = process.env.SUPABASE_KEY || "";
 const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
+
+// Initialize Redis if REDIS_URL is provided
+const redisUrl = process.env.REDIS_URL || "";
+const redis = redisUrl ? new Redis(redisUrl) : null;
+if (redis) {
+  logger.info("Redis client connected");
+}
 
 function loadCookie(): { cookieStr: string; sapisid: string | null } {
   if (process.env.GEMINI_COOKIE) {
@@ -177,43 +186,252 @@ function parseToolCalls(text: string): { cleanText: string; toolCalls: any[] | n
   return { cleanText, toolCalls: toolCalls.length > 0 ? toolCalls : null };
 }
 
+const chatCompletionSchema = z.object({
+  model: z.string().optional().default("gemini-3.5-flash"),
+  messages: z.array(
+    z.object({
+      role: z.enum(["system", "user", "assistant", "tool"]),
+      content: z.union([z.string(), z.array(z.any())]).optional().default(""),
+      name: z.string().optional(),
+      tool_calls: z.array(z.any()).optional()
+    })
+  ).min(1, "messages list must contain at least 1 message"),
+  stream: z.boolean().optional().default(false),
+  tools: z.array(z.any()).optional(),
+  temperature: z.number().optional(),
+  max_tokens: z.number().optional()
+});
+
+const responsesApiSchema = z.object({
+  model: z.string().optional().default("gemini-3.5-flash"),
+  input: z.union([z.string(), z.array(z.any())]).optional().default(""),
+  instructions: z.string().optional(),
+  tools: z.array(z.any()).optional(),
+  stream: z.boolean().optional().default(false)
+});
+
+class CircuitBreaker {
+  private state: "CLOSED" | "OPEN" | "HALF-OPEN" = "CLOSED";
+  private failures = 0;
+  private lastFailureTime = 0;
+  private successThreshold = 2; // successes needed in HALF-OPEN to close
+  private failureThreshold = 5; // failures in CLOSED to open
+  private cooldownMs = 30000; // time in OPEN before HALF-OPEN
+  private consecutiveSuccesses = 0;
+
+  public async execute<T>(action: () => Promise<T>): Promise<T> {
+    if (this.state === "OPEN") {
+      if (Date.now() - this.lastFailureTime > this.cooldownMs) {
+        this.state = "HALF-OPEN";
+        this.consecutiveSuccesses = 0;
+        logger.info("Circuit breaker entered HALF-OPEN state");
+      } else {
+        throw new Error("Circuit breaker is OPEN. Upstream service is temporarily unavailable.");
+      }
+    }
+
+    try {
+      const result = await action();
+      if (this.state === "HALF-OPEN") {
+        this.consecutiveSuccesses++;
+        if (this.consecutiveSuccesses >= this.successThreshold) {
+          this.state = "CLOSED";
+          this.failures = 0;
+          logger.info("Circuit breaker entered CLOSED state");
+        }
+      }
+      return result;
+    } catch (err) {
+      this.failures++;
+      this.lastFailureTime = Date.now();
+      logger.warn({ failures: this.failures, state: this.state }, "Upstream call failed, incrementing circuit breaker failure count");
+      if (this.state === "CLOSED" && this.failures >= this.failureThreshold) {
+        this.state = "OPEN";
+        logger.error("Circuit breaker tripped to OPEN state");
+      } else if (this.state === "HALF-OPEN") {
+        this.state = "OPEN";
+        logger.error("Circuit breaker tripped back to OPEN state from HALF-OPEN");
+      }
+      throw err;
+    }
+  }
+}
+
+const geminiCircuitBreaker = new CircuitBreaker();
+
+function normalizeError(err: any): { status: number; body: any } {
+  const msg = err instanceof Error ? err.message : String(err);
+  
+  if (msg.includes("Circuit breaker is OPEN")) {
+    return {
+      status: 503,
+      body: {
+        error: {
+          message: msg,
+          type: "service_unavailable",
+          param: null,
+          code: "circuit_breaker_open"
+        }
+      }
+    };
+  }
+
+  if (msg.includes("Upstream returned 401") || msg.includes("unauthorized") || msg.includes("SAPISID")) {
+    return {
+      status: 401,
+      body: {
+        error: {
+          message: "Upstream authentication failed. Please check your Gemini cookies.",
+          type: "authentication_error",
+          param: null,
+          code: "invalid_cookie"
+        }
+      }
+    };
+  }
+
+  if (msg.includes("Upstream returned 429") || msg.includes("Too Many Requests")) {
+    return {
+      status: 429,
+      body: {
+        error: {
+          message: "Upstream rate limit exceeded. Please try again later.",
+          type: "rate_limit_error",
+          param: null,
+          code: "upstream_rate_limit"
+        }
+      }
+    };
+  }
+
+  return {
+    status: 502,
+    body: {
+      error: {
+        message: msg,
+        type: "api_error",
+        param: null,
+        code: "bad_gateway"
+      }
+    }
+  };
+}
+
+const memoryRateLimits = new Map<string, { window: number; count: number }>();
+
+function checkInMemoryRateLimit(key: string, limitRpm: number): boolean {
+  const now = Math.floor(Date.now() / 1000);
+  const minuteWindow = Math.floor(now / 60);
+  
+  const current = memoryRateLimits.get(key);
+  if (!current || current.window !== minuteWindow) {
+    memoryRateLimits.set(key, { window: minuteWindow, count: 1 });
+    return true;
+  }
+  
+  current.count += 1;
+  return current.count <= limitRpm;
+}
+
+async function checkRateLimit(key: string, limitRpm: number): Promise<boolean> {
+  if (!limitRpm || limitRpm <= 0) return true;
+  const now = Math.floor(Date.now() / 1000);
+  const minuteWindow = Math.floor(now / 60);
+  const redisKey = `rate:${key}:${minuteWindow}`;
+
+  if (redis) {
+    try {
+      const count = await redis.incr(redisKey);
+      if (count === 1) {
+        await redis.expire(redisKey, 60);
+      }
+      return count <= limitRpm;
+    } catch (e) {
+      logger.error({ err: e }, "Redis rate limiter error, falling back to memory rate limiter");
+      return checkInMemoryRateLimit(key, limitRpm);
+    }
+  } else {
+    return checkInMemoryRateLimit(key, limitRpm);
+  }
+}
+
 async function verifyApiKey(authHeader: string | undefined, model: string): Promise<{
   valid: boolean;
   projectId?: string;
   apiKeyId?: string;
   error?: string;
+  statusCode?: number;
 }> {
   if (!authHeader) {
-    return { valid: false, error: "Missing Authorization header" };
+    return { valid: false, error: "Missing Authorization header", statusCode: 401 };
   }
   const key = authHeader.replace("Bearer ", "").trim();
   if (!key) {
-    return { valid: false, error: "Invalid Authorization header format" };
+    return { valid: false, error: "Invalid Authorization header format", statusCode: 401 };
   }
+
+  // Pre-check for admin bypass keys (both custom env key and default sk-personal-gw)
+  const adminKey = process.env.ADMIN_API_KEY || "sk-personal-gw";
+  if (key === adminKey || key === "sk-personal-gw") {
+    return {
+      valid: true,
+      projectId: "00000000-0000-0000-0000-000000000000",
+      apiKeyId: "00000000-0000-0000-0000-000000000000"
+    };
+  }
+
   if (!supabase) {
-    if (key === "sk-personal-gw") {
-      return {
-        valid: true,
-        projectId: "00000000-0000-0000-0000-000000000000",
-        apiKeyId: "00000000-0000-0000-0000-000000000000"
-      };
-    }
-    return { valid: false, error: "Database offline and key not default" };
+    return { valid: false, error: "Database offline and key not default", statusCode: 503 };
   }
   const { data, error } = await supabase
     .from("api_keys")
-    .select("id, project_id, active, allowed_models")
+    .select("id, project_id, active, allowed_models, daily_requests_limit, daily_tokens_limit, rate_limit_rpm")
     .eq("key", key)
     .single();
   if (error || !data) {
-    return { valid: false, error: "Invalid API key" };
+    return { valid: false, error: "Invalid API key", statusCode: 401 };
   }
   if (!data.active) {
-    return { valid: false, error: "API key is deactivated" };
+    return { valid: false, error: "API key is deactivated", statusCode: 403 };
   }
   if (data.allowed_models && !data.allowed_models.includes(model)) {
-    return { valid: false, error: `Model '${model}' is not allowed for this API key` };
+    return { valid: false, error: `Model '${model}' is not allowed for this API key`, statusCode: 403 };
   }
+
+  // 1. Rate Limiting Check
+  if (data.rate_limit_rpm && data.rate_limit_rpm > 0) {
+    const isRateOk = await checkRateLimit(data.id, data.rate_limit_rpm);
+    if (!isRateOk) {
+      return { valid: false, error: "Rate limit exceeded (RPM)", statusCode: 429 };
+    }
+  }
+
+  // 2. Daily Limits Check
+  if ((data.daily_requests_limit && data.daily_requests_limit > 0) || (data.daily_tokens_limit && data.daily_tokens_limit > 0)) {
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+
+    const { data: usageData, error: usageErr } = await supabase
+      .from("usage_logs")
+      .select("total_tokens")
+      .eq("api_key_id", data.id)
+      .gte("created_at", today.toISOString());
+
+    if (usageErr) {
+      logger.error({ err: usageErr }, "Failed to query usage_logs for limit verification");
+    } else {
+      const requestsToday = usageData ? usageData.length : 0;
+      const tokensToday = usageData ? usageData.reduce((sum, row) => sum + (row.total_tokens || 0), 0) : 0;
+
+      if (data.daily_requests_limit && requestsToday >= data.daily_requests_limit) {
+        return { valid: false, error: "Daily request limit exceeded", statusCode: 429 };
+      }
+      if (data.daily_tokens_limit && tokensToday >= data.daily_tokens_limit) {
+        return { valid: false, error: "Daily token limit exceeded", statusCode: 429 };
+      }
+    }
+  }
+
   return {
     valid: true,
     projectId: data.project_id,
@@ -343,22 +561,54 @@ server.get("/v1/models", async () => {
 });
 
 server.post("/v1/chat/completions", async (request, reply) => {
-  const req: any = request.body || {};
-  const modelName = req.model || "gemini-3.5-flash";
+  const parseResult = chatCompletionSchema.safeParse(request.body);
+  if (!parseResult.success) {
+    return reply.status(400).send({
+      error: {
+        message: "Invalid request body: " + parseResult.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join(", "),
+        type: "invalid_request_error",
+        param: null,
+        code: "invalid_body"
+      }
+    });
+  }
+  const req = parseResult.data;
+  const modelName = req.model;
   const cfg = MODELS[modelName];
   if (!cfg) {
-    return reply.status(400).send({ error: { message: `Unknown model: ${modelName}` } });
+    return reply.status(400).send({
+      error: {
+        message: `Unknown model: ${modelName}`,
+        type: "invalid_request_error",
+        param: "model",
+        code: "unknown_model"
+      }
+    });
   }
 
   const authHeader = request.headers.authorization;
   const auth = await verifyApiKey(authHeader, modelName);
   if (!auth.valid) {
-    return reply.status(401).send({ error: { message: auth.error } });
+    return reply.status(auth.statusCode || 401).send({
+      error: {
+        message: auth.error,
+        type: "invalid_request_error",
+        param: null,
+        code: "invalid_api_key"
+      }
+    });
   }
 
-  const prompt = messagesToPrompt(req.messages || [], req.tools);
+  const prompt = messagesToPrompt(req.messages, req.tools);
   if (!prompt.trim()) {
-    return reply.status(400).send({ error: { message: "empty prompt" } });
+    return reply.status(400).send({
+      error: {
+        message: "Empty prompt or messages",
+        type: "invalid_request_error",
+        param: "messages",
+        code: "empty_prompt"
+      }
+    });
   }
 
   const stream = req.stream === true;
@@ -424,15 +674,18 @@ server.post("/v1/chat/completions", async (request, reply) => {
           headers["Authorization"] = makeSapisidHash(sapisid);
         }
 
-        const response = await fetch(url, {
-          method: "POST",
-          headers,
-          body: bodyParams.toString()
+        // Execute fetch call inside Circuit Breaker
+        const response = await geminiCircuitBreaker.execute(async () => {
+          const res = await fetch(url, {
+            method: "POST",
+            headers,
+            body: bodyParams.toString()
+          });
+          if (!res.ok) {
+            throw new Error(`Upstream returned ${res.status}`);
+          }
+          return res;
         });
-
-        if (!response.ok) {
-          throw new Error(`Upstream returned ${response.status}`);
-        }
 
         const reader = response.body?.getReader();
         if (!reader) {
@@ -511,12 +764,13 @@ server.post("/v1/chat/completions", async (request, reply) => {
         );
       } catch (e) {
         logger.error({ err: e }, "Streaming error");
+        const normalized = normalizeError(e);
         const errChunk = {
           id: cid,
           object: "chat.completion.chunk",
           created: Math.floor(Date.now() / 1000),
           model: modelName,
-          choices: [{ index: 0, delta: { content: `[Gateway Error: ${e instanceof Error ? e.message : String(e)}]` }, finish_reason: "stop" }]
+          choices: [{ index: 0, delta: { content: `[Gateway Error: ${normalized.body.error.message}]` }, finish_reason: "stop" }]
         };
         reply.raw.write(`data: ${JSON.stringify(errChunk)}\n\n`);
         reply.raw.write("data: [DONE]\n\n");
@@ -530,13 +784,14 @@ server.post("/v1/chat/completions", async (request, reply) => {
           Math.floor(prompt.length / 4),
           0,
           durationMs,
-          500
+          normalized.status
         );
       }
       return reply;
     } else {
       try {
-        const raw = await geminiStreamGenerate(prompt, cfg.mode, cfg.think);
+        // Execute stream generate inside Circuit Breaker
+        const raw = await geminiCircuitBreaker.execute(() => geminiStreamGenerate(prompt, cfg.mode, cfg.think));
         const text = extractResponseText(raw);
         const { cleanText, toolCalls } = parseToolCalls(text);
 
@@ -600,12 +855,13 @@ server.post("/v1/chat/completions", async (request, reply) => {
         );
       } catch (e) {
         logger.error({ err: e }, "Streaming error with tools");
+        const normalized = normalizeError(e);
         const errChunk = {
           id: cid,
           object: "chat.completion.chunk",
           created: Math.floor(Date.now() / 1000),
           model: modelName,
-          choices: [{ index: 0, delta: { content: `[Gateway Error: ${e instanceof Error ? e.message : String(e)}]` }, finish_reason: "stop" }]
+          choices: [{ index: 0, delta: { content: `[Gateway Error: ${normalized.body.error.message}]` }, finish_reason: "stop" }]
         };
         reply.raw.write(`data: ${JSON.stringify(errChunk)}\n\n`);
         reply.raw.write("data: [DONE]\n\n");
@@ -619,7 +875,7 @@ server.post("/v1/chat/completions", async (request, reply) => {
           Math.floor(prompt.length / 4),
           0,
           durationMs,
-          500
+          normalized.status
         );
       }
       return reply;
@@ -627,7 +883,7 @@ server.post("/v1/chat/completions", async (request, reply) => {
   }
 
   try {
-    const raw = await geminiStreamGenerate(prompt, cfg.mode, cfg.think);
+    const raw = await geminiCircuitBreaker.execute(() => geminiStreamGenerate(prompt, cfg.mode, cfg.think));
     const text = extractResponseText(raw);
     const { cleanText, toolCalls } = parseToolCalls(text);
 
@@ -662,6 +918,7 @@ server.post("/v1/chat/completions", async (request, reply) => {
     };
   } catch (e) {
     const durationMs = Date.now() - startTime;
+    const normalized = normalizeError(e);
     await logUsage(
       auth.projectId!,
       auth.apiKeyId!,
@@ -669,24 +926,49 @@ server.post("/v1/chat/completions", async (request, reply) => {
       Math.floor(prompt.length / 4),
       0,
       durationMs,
-      502
+      normalized.status
     );
-    return reply.status(502).send({ error: { message: `Upstream error: ${e instanceof Error ? e.message : String(e)}` } });
+    return reply.status(normalized.status).send(normalized.body);
   }
 });
 
 server.post("/v1/responses", async (request, reply) => {
-  const req: any = request.body || {};
-  const modelName = req.model || "gemini-3.5-flash";
+  const parseResult = responsesApiSchema.safeParse(request.body);
+  if (!parseResult.success) {
+    return reply.status(400).send({
+      error: {
+        message: "Invalid request body: " + parseResult.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join(", "),
+        type: "invalid_request_error",
+        param: null,
+        code: "invalid_body"
+      }
+    });
+  }
+  const req = parseResult.data;
+  const modelName = req.model;
   const cfg = MODELS[modelName];
   if (!cfg) {
-    return reply.status(400).send({ error: { message: `Unknown model: ${modelName}` } });
+    return reply.status(400).send({
+      error: {
+        message: `Unknown model: ${modelName}`,
+        type: "invalid_request_error",
+        param: "model",
+        code: "unknown_model"
+      }
+    });
   }
 
   const authHeader = request.headers.authorization;
   const auth = await verifyApiKey(authHeader, modelName);
   if (!auth.valid) {
-    return reply.status(401).send({ error: { message: auth.error } });
+    return reply.status(auth.statusCode || 401).send({
+      error: {
+        message: auth.error,
+        type: "invalid_request_error",
+        param: null,
+        code: "invalid_api_key"
+      }
+    });
   }
 
   const inputItems = req.input || [];
@@ -746,13 +1028,20 @@ server.post("/v1/responses", async (request, reply) => {
 
   const prompt = messagesToPrompt(messages, tools);
   if (!prompt.trim()) {
-    return reply.status(400).send({ error: { message: "empty input" } });
+    return reply.status(400).send({
+      error: {
+        message: "Empty input or instructions",
+        type: "invalid_request_error",
+        param: "input",
+        code: "empty_input"
+      }
+    });
   }
 
   const startTime = Date.now();
 
   try {
-    const raw = await geminiStreamGenerate(prompt, cfg.mode, cfg.think);
+    const raw = await geminiCircuitBreaker.execute(() => geminiStreamGenerate(prompt, cfg.mode, cfg.think));
     const text = extractResponseText(raw);
     const { cleanText, toolCalls } = parseToolCalls(text);
 
@@ -809,6 +1098,7 @@ server.post("/v1/responses", async (request, reply) => {
     };
   } catch (e) {
     const durationMs = Date.now() - startTime;
+    const normalized = normalizeError(e);
     await logUsage(
       auth.projectId!,
       auth.apiKeyId!,
@@ -816,9 +1106,9 @@ server.post("/v1/responses", async (request, reply) => {
       Math.floor(prompt.length / 4),
       0,
       durationMs,
-      502
+      normalized.status
     );
-    return reply.status(502).send({ error: { message: `Upstream error: ${e instanceof Error ? e.message : String(e)}` } });
+    return reply.status(normalized.status).send(normalized.body);
   }
 });
 
