@@ -333,12 +333,12 @@ export default function Home() {
       <aside className="w-80 border-r border-[#1a1d2e] bg-[#0c0e18] flex flex-col justify-between p-6">
         <div className="space-y-8">
           <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="Gemini Web2API Logo" className="h-10 w-10 rounded-lg object-cover" />
+            <img src="/logo.png" alt="Gemini Web2API Logo" className="h-10 w-10 rounded-xl border border-blue-500/30 shadow-[0_0_15px_rgba(59,130,246,0.25)] hover:scale-105 transition-all duration-300 object-cover" />
             <div>
-              <h1 className="text-sm font-bold tracking-tight bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
+              <h1 className="text-sm font-extrabold tracking-tight bg-gradient-to-r from-blue-400 via-indigo-400 to-purple-400 bg-clip-text text-transparent">
                 Gemini Web2API
               </h1>
-              <p className="text-[8px] text-slate-500 font-medium uppercase tracking-wider">
+              <p className="text-[8px] text-slate-500 font-bold uppercase tracking-widest">
                 OPENAI-COMPATIBLE
               </p>
             </div>

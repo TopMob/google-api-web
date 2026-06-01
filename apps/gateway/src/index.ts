@@ -465,7 +465,7 @@ async function logUsage(
   }
 }
 
-async function geminiStreamGenerate(prompt: string, modelId: number, thinkMode: number): Promise<string> {
+function buildGeminiRequest(prompt: string, modelId: number, thinkMode: number): { url: string; headers: Record<string, string>; body: string } {
   const inner = new Array(80).fill(null);
   inner[0] = [prompt, 0, null, null, null, null, 0];
   inner[1] = ["en"];
@@ -513,13 +513,19 @@ async function geminiStreamGenerate(prompt: string, modelId: number, thinkMode: 
     headers["Authorization"] = makeSapisidHash(sapisid);
   }
 
+  return { url, headers, body: bodyParams.toString() };
+}
+
+async function geminiStreamGenerate(prompt: string, modelId: number, thinkMode: number): Promise<string> {
+  const { url, headers, body } = buildGeminiRequest(prompt, modelId, thinkMode);
+
   let lastErr: any = null;
   for (let attempt = 0; attempt < RETRY_ATTEMPTS; attempt++) {
     try {
       const response = await fetch(url, {
         method: "POST",
         headers,
-        body: bodyParams.toString()
+        body
       });
       if (!response.ok) {
         throw new Error(`Upstream returned ${response.status}`);
@@ -627,59 +633,14 @@ server.post("/v1/chat/completions", async (request, reply) => {
       let responseText = "";
 
       try {
-        const inner = new Array(80).fill(null);
-        inner[0] = [prompt, 0, null, null, null, null, 0];
-        inner[1] = ["en"];
-        inner[2] = ["", "", "", null, null, null, null, null, null, ""];
-        inner[6] = [0];
-        inner[7] = 1;
-        inner[10] = 1;
-        inner[11] = 0;
-        inner[17] = [[cfg.think]];
-        inner[18] = 0;
-        inner[27] = 1;
-        inner[30] = [4];
-        inner[41] = [2];
-        inner[53] = 0;
-        inner[59] = uuidv4();
-        inner[61] = [];
-        inner[68] = 1;
-        inner[79] = cfg.mode;
-
-        const outer = [null, JSON.stringify(inner)];
-        const bodyParams = new URLSearchParams();
-        bodyParams.append("f.req", JSON.stringify(outer));
-
-        const reqid = Math.floor(Date.now() / 1000) % 1000000;
-        const prefix = AUTH_USER ? `/u/${AUTH_USER}` : "";
-        const url = `https://gemini.google.com${prefix}/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate?bl=${GEMINI_BL}&hl=en&_reqid=${reqid}&rt=c`;
-
-        const headers: Record<string, string> = {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "Origin": "https://gemini.google.com",
-          "Referer": `https://gemini.google.com${prefix}/app`,
-          "X-Same-Domain": "1",
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        };
-
-        if (AUTH_USER) {
-          headers["X-Goog-AuthUser"] = String(AUTH_USER);
-        }
-
-        const { cookieStr, sapisid } = loadCookie();
-        if (cookieStr) {
-          headers["Cookie"] = cookieStr;
-        }
-        if (sapisid) {
-          headers["Authorization"] = makeSapisidHash(sapisid);
-        }
+        const { url, headers, body } = buildGeminiRequest(prompt, cfg.mode, cfg.think);
 
         // Execute fetch call inside Circuit Breaker
         const response = await geminiCircuitBreaker.execute(async () => {
           const res = await fetch(url, {
             method: "POST",
             headers,
-            body: bodyParams.toString()
+            body
           });
           if (!res.ok) {
             throw new Error(`Upstream returned ${res.status}`);
