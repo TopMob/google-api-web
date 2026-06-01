@@ -40,6 +40,9 @@ interface ApiKey {
   active: boolean;
   projects?: { name: string };
   allowed_models?: string[];
+  daily_requests_limit?: number;
+  daily_tokens_limit?: number;
+  rate_limit_rpm?: number;
 }
 
 interface UsageLog {
@@ -84,6 +87,10 @@ export default function Home() {
   const [newProjectName, setNewProjectName] = useState("");
   const [newKeyName, setNewKeyName] = useState("");
   const [newKeyProjectId, setNewKeyProjectId] = useState("");
+  const [dailyRequestsLimit, setDailyRequestsLimit] = useState("");
+  const [dailyTokensLimit, setDailyTokensLimit] = useState("");
+  const [rateLimitRpm, setRateLimitRpm] = useState("");
+  const [playgroundKey, setPlaygroundKey] = useState("sk-personal-gw");
   
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -201,10 +208,19 @@ export default function Home() {
       const res = await fetch("/api/keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newKeyName, project_id: newKeyProjectId })
+        body: JSON.stringify({ 
+          name: newKeyName, 
+          project_id: newKeyProjectId,
+          daily_requests_limit: dailyRequestsLimit || null,
+          daily_tokens_limit: dailyTokensLimit || null,
+          rate_limit_rpm: rateLimitRpm || null
+        })
       });
       if (res.ok) {
         setNewKeyName("");
+        setDailyRequestsLimit("");
+        setDailyTokensLimit("");
+        setRateLimitRpm("");
         fetchDbData();
       }
     } catch {}
@@ -242,7 +258,7 @@ export default function Home() {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
-          "Authorization": "Bearer sk-personal-gw"
+          "Authorization": `Bearer ${playgroundKey}`
         },
         body: JSON.stringify({
           model: selectedModel,
@@ -406,6 +422,27 @@ export default function Home() {
                   {models.map((m) => (
                     <option key={m} value={m} className="bg-[#0c0e18]">
                       {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-2 block">
+                PLAYGROUND API KEY
+              </label>
+              <div className="relative">
+                <Key size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <select
+                  value={playgroundKey}
+                  onChange={(e) => setPlaygroundKey(e.target.value)}
+                  className="w-full bg-[#121626] border border-[#1e233b] hover:border-blue-500/50 rounded-xl pl-10 pr-4 py-3 text-xs font-semibold text-slate-200 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 cursor-pointer appearance-none animate-none"
+                >
+                  <option value="sk-personal-gw" className="bg-[#0c0e18]">sk-personal-gw (Admin Bypass)</option>
+                  {apiKeys.filter(k => k.active).map((k) => (
+                    <option key={k.id} value={k.key} className="bg-[#0c0e18]">
+                      {k.name} ({k.key.substring(0, 15)}...)
                     </option>
                   ))}
                 </select>
@@ -629,6 +666,47 @@ export default function Home() {
                     </select>
                   </div>
 
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] uppercase font-bold tracking-wider text-slate-400 block">
+                        Daily Requests
+                      </label>
+                      <input
+                        type="number"
+                        value={dailyRequestsLimit}
+                        onChange={(e) => setDailyRequestsLimit(e.target.value)}
+                        placeholder="Unlimited"
+                        className="w-full bg-[#121626] border border-[#1e233b] focus:border-blue-500/80 rounded-xl px-3 py-2 text-[11px] outline-none text-slate-200"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] uppercase font-bold tracking-wider text-slate-400 block">
+                        Daily Tokens
+                      </label>
+                      <input
+                        type="number"
+                        value={dailyTokensLimit}
+                        onChange={(e) => setDailyTokensLimit(e.target.value)}
+                        placeholder="Unlimited"
+                        className="w-full bg-[#121626] border border-[#1e233b] focus:border-blue-500/80 rounded-xl px-3 py-2 text-[11px] outline-none text-slate-200"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] uppercase font-bold tracking-wider text-slate-400 block">
+                        RPM Rate Limit
+                      </label>
+                      <input
+                        type="number"
+                        value={rateLimitRpm}
+                        onChange={(e) => setRateLimitRpm(e.target.value)}
+                        placeholder="Unlimited"
+                        className="w-full bg-[#121626] border border-[#1e233b] focus:border-blue-500/80 rounded-xl px-3 py-2 text-[11px] outline-none text-slate-200"
+                      />
+                    </div>
+                  </div>
+
                   <button
                     type="submit"
                     className="w-full bg-blue-600 hover:bg-blue-500 text-white rounded-xl py-3 text-xs font-semibold transition flex items-center justify-center gap-1.5"
@@ -652,6 +730,7 @@ export default function Home() {
                       <th className="pb-3 pr-4">Name</th>
                       <th className="pb-3 px-4">Project</th>
                       <th className="pb-3 px-4">API Key Value</th>
+                      <th className="pb-3 px-4">Limits (Req/Tok/RPM)</th>
                       <th className="pb-3 px-4">Status</th>
                       <th className="pb-3 pl-4 text-right">Actions</th>
                     </tr>
@@ -671,6 +750,9 @@ export default function Home() {
                               {copiedKey === k.key ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
                             </button>
                           </span>
+                        </td>
+                        <td className="py-4 px-4 text-slate-400 font-mono text-[11px]">
+                          {k.daily_requests_limit || "∞"} / {k.daily_tokens_limit || "∞"} / {k.rate_limit_rpm || "∞"}
                         </td>
                         <td className="py-4 px-4">
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
