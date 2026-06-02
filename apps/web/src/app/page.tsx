@@ -490,34 +490,7 @@ export default function Home() {
               </div>
             </div>
 
-            <div>
-              <div className="flex justify-between items-center mb-2">
-                <label className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block">
-                  SELECT MODEL
-                </label>
-                <button 
-                  onClick={fetchModels} 
-                  className="text-slate-400 hover:text-blue-400 transition-colors"
-                  title="Refresh models"
-                >
-                  <RefreshCw size={12} />
-                </button>
-              </div>
-              <div className="relative">
-                <Cpu size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                <select
-                  value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
-                  className="w-full bg-[#121626] border border-[#1e233b] hover:border-blue-500/50 rounded-xl pl-10 pr-4 py-3 text-xs font-semibold text-slate-200 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 cursor-pointer appearance-none animate-none"
-                >
-                  {models.map((m) => (
-                    <option key={m} value={m} className="bg-[#0c0e18]">
-                      {m}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
+
 
             <div>
               <label className="text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-2 block">
@@ -540,30 +513,11 @@ export default function Home() {
               </div>
             </div>
 
-            <div>
-              <label className="text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-2 block">
-                LOCAL API ENDPOINT
-              </label>
-              <div className="p-3 bg-[#121626] border border-[#1e233b] rounded-xl space-y-2">
-                <div className="text-[11px] font-mono text-blue-400 break-all select-all">
-                  http://localhost:3000/api/v1
-                </div>
-                <p className="text-[9px] text-slate-500 leading-relaxed">
-                  Use this URL in your other local projects as OpenAI baseURL.
-                </p>
-              </div>
-            </div>
+
           </div>
         </div>
 
-        <div className="space-y-4 pt-6 border-t border-[#1a1d2e]">
-          <div className="flex items-center gap-3 p-3 bg-blue-500/5 border border-blue-500/10 rounded-xl">
-            <Shield size={16} className="text-blue-400 shrink-0" />
-            <div className="text-[9px] text-slate-400 leading-normal">
-              CORS Bypass active. Upstream requests mapped to Gemini Web StreamGenerate.
-            </div>
-          </div>
-        </div>
+
       </aside>
 
       <main className="flex-1 flex flex-col justify-between bg-[#08090e]">
@@ -596,9 +550,34 @@ export default function Home() {
               )}
             </div>
             <span className="h-4 w-px bg-[#1a1d2e]" />
-            <div className="text-xs text-slate-400 flex items-center gap-1.5">
-              <Terminal size={12} className="text-slate-500" />
-              <span>Model: <span className="font-mono font-bold text-slate-200">{selectedModel}</span></span>
+            <div className="text-xs text-slate-400 flex items-center gap-2">
+              <Cpu size={14} className="text-blue-400" />
+              <span className="font-semibold text-slate-300">Model:</span>
+              <div className="relative flex items-center">
+                <select
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  className="bg-[#121626] border border-[#1e233b] hover:border-blue-500/50 rounded-lg pl-3 pr-8 py-1.5 text-xs font-semibold text-slate-200 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 cursor-pointer appearance-none font-mono"
+                >
+                  {models.map((m) => (
+                    <option key={m} value={m} className="bg-[#0c0e18] font-mono">
+                      {m}
+                    </option>
+                  ))}
+                </select>
+                <div className="absolute right-2 pointer-events-none text-slate-400">
+                  <svg className="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </div>
+              <button 
+                onClick={fetchModels} 
+                className="text-slate-400 hover:text-blue-400 transition-colors p-1"
+                title="Refresh models"
+              >
+                <RefreshCw size={12} />
+              </button>
             </div>
           </div>
 
