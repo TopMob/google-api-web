@@ -98,3 +98,7 @@ npm install
 ```bash
 npm run dev
 ```
+
+## TODO
+- [ ] Доделать подключение провайдеров (VS Code, Codex, Codex CLI, OpenClaw, Cursor, JetBrains, Zed)
+

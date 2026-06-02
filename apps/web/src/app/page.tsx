@@ -24,7 +24,8 @@ import {
   Info,
   Lock,
   FileText,
-  BookOpen
+  BookOpen,
+  Code
 } from "lucide-react";
 
 
@@ -1106,33 +1107,103 @@ export default function Home() {
                     </div>
                   </div>
                 </section>
-
                 {/* Step 3: Client Configs */}
                 <section id="step-clients" className="bg-[#0c0e18] border border-[#1a1d2e] rounded-2xl p-6 space-y-6 scroll-mt-6">
                   <div className="border-b border-[#1e233b] pb-4 flex items-center gap-2">
                     <FileText size={18} className="text-blue-400" />
-                    <h3 className="text-sm font-bold text-slate-100">3. Настройка в сторонних клиентах (OpenCode / NextChat)</h3>
+                    <h3 className="text-sm font-bold text-slate-100">3. Настройка в сторонних клиентах и IDE</h3>
                   </div>
 
-                  <div className="space-y-5 text-xs text-slate-300">
+                  <div className="space-y-6 text-xs text-slate-300">
+                    <p className="leading-relaxed text-slate-400">
+                      Наш шлюз полностью совместим с OpenAI API, что позволяет интегрировать его практически в любого клиента, среду разработки (IDE) или инструмент автодополнения кода. Выберите интересующий вас инструмент и платформу.
+                    </p>
+
+                    {/* Provider Selectors */}
                     <div className="space-y-2">
-                      <h4 className="font-bold text-slate-200">Настройка в NextChat / LobeChat / др.</h4>
-                      <p className="text-slate-400 leading-relaxed">
-                        В настройках любого OpenAI-совместимого веб-интерфейса или приложения укажите:
-                      </p>
-                      <ul className="list-disc pl-5 space-y-1.5 text-slate-400">
-                        <li><strong className="text-slate-300">Base URL:</strong> <code className="text-blue-400 font-mono">http://localhost:3000/api/v1</code> (или адрес вашего развернутого шлюза)</li>
-                        <li><strong className="text-slate-300">API Key:</strong> <code className="text-blue-400 font-mono">SID=ваш_SID; SAPISID=ваш_SAPISID; __Secure-1PSID=ваш___Secure-1PSID;</code></li>
-                      </ul>
+                      <div className="text-[10px] uppercase font-extrabold tracking-wider text-slate-500">Провайдер / Интеграция</div>
+                      <div className="flex flex-wrap gap-1 p-1 bg-[#121626] border border-[#1e233b] rounded-xl">
+                        {[
+                          { id: "opencode", name: "OpenCode" },
+                          { id: "vscode", name: "VS Code" },
+                          { id: "codex", name: "Codex" },
+                          { id: "codex_cli", name: "Codex CLI" },
+                          { id: "openclaw", name: "OpenClaw" },
+                          { id: "cursor", name: "Cursor" },
+                          { id: "jetbrains", name: "JetBrains" },
+                          { id: "zed", name: "Zed" }
+                        ].map((prov) => (
+                          <button
+                            key={prov.id}
+                            type="button"
+                            onClick={() => setActiveProvider(prov.id as any)}
+                            className={`px-3 py-2 rounded-lg text-[10px] font-bold tracking-wide transition ${
+                              activeProvider === prov.id
+                                ? "bg-blue-600 text-white shadow-md shadow-blue-600/20"
+                                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
+                            }`}
+                          >
+                            {prov.name}
+                          </button>
+                        ))}
+                      </div>
                     </div>
 
-                    <div className="space-y-2.5">
-                      <h4 className="font-bold text-slate-200">Настройка через файл opencode.json</h4>
-                      <p className="text-slate-400 leading-relaxed">
-                        Если вы настраиваете провайдер через файл конфигурации `opencode.json`, используйте следующий шаблон:
-                      </p>
-                      <div className="relative bg-[#121626] border border-[#1e233b] rounded-xl p-4 font-mono text-[11px] text-slate-300 block">
-                        <pre className="overflow-x-auto text-[10px] leading-relaxed select-all">
+                    {/* Platform Selectors */}
+                    <div className="space-y-2">
+                      <div className="text-[10px] uppercase font-extrabold tracking-wider text-slate-500">Платформа / ОС</div>
+                      <div className="flex gap-1 p-1 bg-[#121626] border border-[#1e233b] rounded-xl max-w-xs">
+                        {[
+                          { id: "windows", name: "Windows" },
+                          { id: "macos", name: "macOS" },
+                          { id: "linux", name: "Linux" }
+                        ].map((plat) => (
+                          <button
+                            key={plat.id}
+                            type="button"
+                            onClick={() => setActivePlatform(plat.id as any)}
+                            className={`flex-1 px-3 py-2 rounded-lg text-[10px] font-bold tracking-wide transition ${
+                              activePlatform === plat.id
+                                ? "bg-blue-600 text-white shadow-md shadow-blue-600/20"
+                                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
+                            }`}
+                          >
+                            {plat.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Dynamic content rendering based on activeProvider */}
+                    {activeProvider === "opencode" ? (
+                      <div className="space-y-5 pt-2">
+                        <div className="space-y-2">
+                          <h4 className="font-bold text-slate-200">Настройка в NextChat / LobeChat / др.</h4>
+                          <p className="text-slate-400 leading-relaxed">
+                            В настройках любого OpenAI-совместимого веб-интерфейса или приложения укажите:
+                          </p>
+                          <ul className="list-disc pl-5 space-y-1.5 text-slate-400">
+                            <li><strong className="text-slate-300">Base URL:</strong> <code className="text-blue-400 font-mono">http://localhost:3000/api/v1</code> (или внешний адрес вашего шлюза)</li>
+                            <li><strong className="text-slate-300">API Key:</strong> <code className="text-blue-400 font-mono">SID=ваш_SID; SAPISID=ваш_SAPISID; __Secure-1PSID=ваш___Secure-1PSID;</code></li>
+                          </ul>
+                        </div>
+
+                        <div className="space-y-2.5">
+                          <h4 className="font-bold text-slate-200">Настройка через файл opencode.json</h4>
+                          <p className="text-slate-400 leading-relaxed">
+                            {activePlatform === "windows" && (
+                              <span>Файл конфигурации расположен по пути: <code className="text-slate-300 font-mono bg-slate-900/40 px-1 py-0.5 rounded">%USERPROFILE%\.opencode\opencode.json</code>.</span>
+                            )}
+                            {activePlatform === "macos" && (
+                              <span>Файл конфигурации расположен по пути: <code className="text-slate-300 font-mono bg-slate-900/40 px-1 py-0.5 rounded">~/.opencode/opencode.json</code>.</span>
+                            )}
+                            {activePlatform === "linux" && (
+                              <span>Файл конфигурации расположен по пути: <code className="text-slate-300 font-mono bg-slate-900/40 px-1 py-0.5 rounded">~/.opencode/opencode.json</code>.</span>
+                            )}
+                            {" "}Используйте следующий шаблон структуры провайдера:
+                          </p>
+                          <div className="relative bg-[#121626] border border-[#1e233b] rounded-xl p-4 font-mono text-[11px] text-slate-300 block">
+                            <pre className="overflow-x-auto text-[10px] leading-relaxed select-all">
 {`{
   "providers": [
     {
@@ -1145,17 +1216,56 @@ export default function Home() {
     }
   ]
 }`}
-                        </pre>
-                        <button
-                          type="button"
-                          onClick={() => copyGuideText(`{\n  "providers": [\n    {\n      "id": "gemini-web-gateway",\n      "name": "Gemini Web Proxy",\n      "api_type": "openai",\n      "api_url": "http://localhost:3000/api/v1",\n      "api_key": "SID=your_sid_here; SAPISID=your_sapisid_here; __Secure-1PSID=your_secure_1psid_here;",\n      "models": ["gemini-3.5-flash", "gemini-3.1-pro"]\n    }\n  ]\n}`, "opencode-json")}
-                          className="absolute top-4 right-4 text-slate-500 hover:text-blue-400 transition shrink-0 p-1 bg-slate-800/30 rounded"
-                          title="Скопировать JSON"
-                        >
-                          {copiedId === "opencode-json" ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-                        </button>
+                            </pre>
+                            <button
+                              type="button"
+                              onClick={() => copyGuideText(`{\n  "providers": [\n    {\n      "id": "gemini-web-gateway",\n      "name": "Gemini Web Proxy",\n      "api_type": "openai",\n      "api_url": "http://localhost:3000/api/v1",\n      "api_key": "SID=your_sid_here; SAPISID=your_sapisid_here; __Secure-1PSID=your_secure_1psid_here;",\n      "models": ["gemini-3.5-flash", "gemini-3.1-pro"]\n    }\n  ]\n}`, "opencode-json")}
+                              className="absolute top-4 right-4 text-slate-500 hover:text-blue-400 transition shrink-0 p-1 bg-slate-800/30 rounded"
+                              title="Скопировать JSON"
+                            >
+                              {copiedId === "opencode-json" ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center text-center p-8 bg-[#121626]/40 border border-[#1e233b]/60 border-dashed rounded-xl space-y-4 pt-6">
+                        <div className="p-3 bg-blue-500/5 border border-blue-500/10 rounded-xl text-blue-400 animate-pulse">
+                          <Code size={24} />
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="font-bold text-slate-200">
+                            Подключение {
+                              activeProvider === "vscode" ? "VS Code" :
+                              activeProvider === "codex" ? "Codex" :
+                              activeProvider === "codex_cli" ? "Codex CLI" :
+                              activeProvider === "openclaw" ? "OpenClaw" :
+                              activeProvider === "cursor" ? "Cursor" :
+                              activeProvider === "jetbrains" ? "JetBrains" :
+                              "Zed"
+                            } на {
+                              activePlatform === "windows" ? "Windows" :
+                              activePlatform === "macos" ? "macOS" :
+                              "Linux"
+                            }
+                          </h4>
+                          <p className="text-[11px] text-slate-400 max-w-sm leading-relaxed">
+                            Инструкция по настройке {
+                              activeProvider === "vscode" ? "расширения VS Code" :
+                              activeProvider === "codex" ? "клиента Codex" :
+                              activeProvider === "codex_cli" ? "утилиты Codex CLI" :
+                              activeProvider === "openclaw" ? "клиента OpenClaw" :
+                              activeProvider === "cursor" ? "редактора Cursor" :
+                              activeProvider === "jetbrains" ? "плагинов JetBrains IDE" :
+                              "редактора Zed"
+                            } для этой платформы находится в процессе наполнения (заглушка).
+                          </p>
+                        </div>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold bg-amber-500/10 text-amber-400">
+                          TODO: Доделать подключение
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </section>
 
