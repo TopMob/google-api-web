@@ -674,7 +674,7 @@ async function verifyApiKey(request: any, model: string): Promise<{
   // Database lookup
   const { data, error } = await supabase
     .from("api_keys")
-    .select("id, project_id, active, allowed_models, daily_requests_limit, daily_tokens_limit, rate_limit_rpm")
+    .select("id, project_id, active, allowed_models, daily_requests_limit, daily_tokens_limit, rate_limit_rpm, expires_at")
     .eq("key", key)
     .single();
 
@@ -683,6 +683,9 @@ async function verifyApiKey(request: any, model: string): Promise<{
   }
   if (!data.active) {
     return { valid: false, error: "API key is deactivated", statusCode: 403 };
+  }
+  if (data.expires_at && new Date(data.expires_at) < new Date()) {
+    return { valid: false, error: "API key has expired", statusCode: 403 };
   }
   if (data.allowed_models && !data.allowed_models.includes(model)) {
     return { valid: false, error: `Model '${model}' is not allowed for this API key`, statusCode: 403 };

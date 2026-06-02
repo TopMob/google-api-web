@@ -129,7 +129,7 @@ function parseAndValidateCookie(key) {
 }
 async function testGeminiConnection(cookieStr, sapisid) {
     try {
-        const prefix = AUTH_USER ? `/u/${AUTH_USER}` : "";
+        const prefix = AUTH_USER ? `/u/${AUTH_USER}` : "/u/0";
         const url = `https://gemini.google.com${prefix}/app`;
         const headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -142,10 +142,14 @@ async function testGeminiConnection(cookieStr, sapisid) {
             method: "GET",
             headers
         });
+        if (res.status >= 400) {
+            return false;
+        }
         if (res.url.includes("accounts.google.com") || res.url.includes("ServiceLogin")) {
             return false;
         }
-        return res.status < 400;
+        const text = await res.text();
+        return text.includes("SNlM0e");
     }
     catch (e) {
         logger.error({ err: e }, "Failed to test Gemini connection");
@@ -577,7 +581,7 @@ async function verifyApiKey(request, model) {
     // Database lookup
     const { data, error } = await supabase
         .from("api_keys")
-        .select("id, project_id, active, allowed_models, daily_requests_limit, daily_tokens_limit, rate_limit_rpm")
+        .select("id, project_id, active, allowed_models, daily_requests_limit, daily_tokens_limit, rate_limit_rpm, expires_at")
         .eq("key", key)
         .single();
     if (error || !data) {
@@ -585,6 +589,9 @@ async function verifyApiKey(request, model) {
     }
     if (!data.active) {
         return { valid: false, error: "API key is deactivated", statusCode: 403 };
+    }
+    if (data.expires_at && new Date(data.expires_at) < new Date()) {
+        return { valid: false, error: "API key has expired", statusCode: 403 };
     }
     if (data.allowed_models && !data.allowed_models.includes(model)) {
         return { valid: false, error: `Model '${model}' is not allowed for this API key`, statusCode: 403 };

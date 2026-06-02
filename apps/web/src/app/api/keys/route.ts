@@ -22,7 +22,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { name, project_id, allowed_models, daily_requests_limit, daily_tokens_limit, rate_limit_rpm } = body;
+    const { name, project_id, allowed_models, daily_requests_limit, daily_tokens_limit, rate_limit_rpm, expires_at } = body;
     if (!name || !project_id) {
       return NextResponse.json({ error: "Name and project_id are required" }, { status: 400 });
     }
@@ -36,7 +36,8 @@ export async function POST(req: NextRequest) {
         allowed_models: allowed_models || null,
         daily_requests_limit: daily_requests_limit ? parseInt(daily_requests_limit, 10) : null,
         daily_tokens_limit: daily_tokens_limit ? parseInt(daily_tokens_limit, 10) : null,
-        rate_limit_rpm: rate_limit_rpm ? parseInt(rate_limit_rpm, 10) : null
+        rate_limit_rpm: rate_limit_rpm ? parseInt(rate_limit_rpm, 10) : null,
+        expires_at: expires_at || null
       })
       .select()
       .single();
