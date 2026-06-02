@@ -12,18 +12,55 @@ import { Redis } from "ioredis";
 
 dotenv.config();
 
+interface Config {
+  port?: number;
+  host?: string;
+  retry_attempts?: number;
+  retry_delay_sec?: number;
+  request_timeout_sec?: number;
+  gemini_bl?: string;
+  auth_user?: string | null;
+  xsrf_token?: string | null;
+  api_keys?: string[];
+  cookie_file?: string | null;
+  proxy?: string | null;
+  log_requests?: boolean;
+}
+
+function loadConfig(): Config {
+  const paths = [
+    path.resolve(process.cwd(), "config.json"),
+    path.resolve(process.cwd(), "../config.json"),
+    path.resolve(process.cwd(), "../../config.json"),
+    path.resolve(process.cwd(), "apps/gateway/config.json")
+  ];
+  for (const p of paths) {
+    if (fs.existsSync(p)) {
+      try {
+        const content = fs.readFileSync(p, "utf-8");
+        return JSON.parse(content);
+      } catch (e) {
+        console.error(`Failed to parse config file at ${p}:`, e);
+      }
+    }
+  }
+  return {};
+}
+
+const config = loadConfig();
+
 const logger = pino({
   level: process.env.LOG_LEVEL || "info"
 });
 
 const server = fastify({ logger });
 
-const PORT = parseInt(process.env.PORT || "8081", 10);
-const HOST = process.env.HOST || "0.0.0.0";
-const GEMINI_BL = process.env.GEMINI_BL || "boq_assistant-bard-web-server_20260525.09_p0";
-const AUTH_USER = process.env.AUTH_USER || "";
-const RETRY_ATTEMPTS = parseInt(process.env.RETRY_ATTEMPTS || "3", 10);
-const RETRY_DELAY_SEC = parseInt(process.env.RETRY_DELAY_SEC || "2", 10);
+const PORT = config.port ?? parseInt(process.env.PORT ?? "8081", 10);
+const HOST = config.host ?? (process.env.HOST || "0.0.0.0");
+const GEMINI_BL = config.gemini_bl ?? (process.env.GEMINI_BL || "boq_assistant-bard-web-server_20260525.09_p0");
+const AUTH_USER = config.auth_user !== undefined ? (config.auth_user ?? "") : (process.env.AUTH_USER || "");
+const RETRY_ATTEMPTS = config.retry_attempts ?? parseInt(process.env.RETRY_ATTEMPTS ?? "3", 10);
+const RETRY_DELAY_SEC = config.retry_delay_sec ?? parseInt(process.env.RETRY_DELAY_SEC ?? "2", 10);
 
 const supabaseUrl = process.env.SUPABASE_URL || "";
 const supabaseKey = process.env.SUPABASE_KEY || "";
@@ -43,12 +80,19 @@ function loadCookie(): { cookieStr: string; sapisid: string | null } {
     return { cookieStr, sapisid: match ? match[1] : null };
   }
 
-  const paths = [
+  const paths: string[] = [];
+  if (config.cookie_file) {
+    paths.push(
+      path.resolve(process.cwd(), config.cookie_file),
+      path.resolve(process.cwd(), "apps/gateway", config.cookie_file)
+    );
+  }
+  paths.push(
     path.resolve(process.cwd(), "cookies/cookie.txt"),
     path.resolve(process.cwd(), "../cookies/cookie.txt"),
     path.resolve(process.cwd(), "../../cookies/cookie.txt"),
     path.resolve(process.cwd(), "cookie.txt")
-  ];
+  );
 
   for (const p of paths) {
     if (fs.existsSync(p)) {
@@ -74,6 +118,108 @@ function makeSapisidHash(sapisid: string): string {
   const ts = Math.floor(Date.now() / 1000);
   const h = crypto.createHash("sha1").update(`${ts} ${sapisid} https://gemini.google.com`).digest("hex");
   return `SAPISIDHASH ${ts}_${h}`;
+}
+
+interface GeminiCookieData {
+  cookieStr: string;
+  sapisid: string | null;
+  cookiesObj: Record<string, string>;
+}
+
+function parseAndValidateCookie(key: string): { valid: boolean; data?: GeminiCookieData; error?: string } {
+  let cookieStr = key.trim();
+  let sapisid: string | null = null;
+  let cookiesObj: Record<string, string> = {};
+
+  if (cookieStr.startsWith("{")) {
+    try {
+      const data = JSON.parse(cookieStr);
+      cookieStr = data.cookie || "";
+      sapisid = data.sapisid || null;
+    } catch (e) {
+      return { valid: false, error: "Invalid JSON format for cookie" };
+    }
+  }
+
+  // Parse the cookies
+  cookieStr.split(";").forEach((part) => {
+    const [name, ...valueParts] = part.trim().split("=");
+    if (name && valueParts.length > 0) {
+      cookiesObj[name] = valueParts.join("=");
+    }
+  });
+
+  if (!sapisid && cookiesObj.SAPISID) {
+    sapisid = cookiesObj.SAPISID;
+  }
+
+  const hasSecureCookie = !!cookiesObj["__Secure-1PSID"];
+  const hasClassicCookies = !!(cookiesObj.SID && sapisid);
+
+  if (!hasSecureCookie && !hasClassicCookies) {
+    return {
+      valid: false,
+      error: "Invalid cookie format. Required: __Secure-1PSID or (SID + SAPISID)"
+    };
+  }
+
+  return {
+    valid: true,
+    data: {
+      cookieStr,
+      sapisid,
+      cookiesObj
+    }
+  };
+}
+
+async function testGeminiConnection(cookieStr: string, sapisid: string | null): Promise<boolean> {
+  try {
+    const prefix = AUTH_USER ? `/u/${AUTH_USER}` : "/u/0";
+    const url = `https://gemini.google.com${prefix}/app`;
+    const headers: Record<string, string> = {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Cookie": cookieStr
+    };
+    if (sapisid) {
+      headers["Authorization"] = makeSapisidHash(sapisid);
+    }
+    const res = await fetch(url, {
+      method: "GET",
+      headers
+    });
+    
+    if (res.status >= 400) {
+      return false;
+    }
+    
+    if (res.url.includes("accounts.google.com") || res.url.includes("ServiceLogin")) {
+      return false;
+    }
+
+    const text = await res.text();
+    return text.includes("SNlM0e");
+  } catch (e) {
+    logger.error({ err: e }, "Failed to test Gemini connection");
+    return false;
+  }
+}
+
+const cookieValidationCache = new Map<string, { isValid: boolean; timestamp: number }>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+async function isCookieValidCached(cookieStr: string, sapisid: string | null): Promise<boolean> {
+  const cacheKey = crypto.createHash("sha256").update(cookieStr).digest("hex");
+  const cached = cookieValidationCache.get(cacheKey);
+  const now = Date.now();
+
+  if (cached && now - cached.timestamp < CACHE_TTL_MS) {
+    return cached.isValid;
+  }
+
+  const isValid = await testGeminiConnection(cookieStr, sapisid);
+  cookieValidationCache.set(cacheKey, { isValid, timestamp: now });
+  return isValid;
 }
 
 function cleanGeminiText(text: string): string {
@@ -290,6 +436,34 @@ function normalizeError(err: any): { status: number; body: any } {
     };
   }
 
+  if (msg.includes("Upstream returned 400")) {
+    return {
+      status: 400,
+      body: {
+        error: {
+          message: "Bad request to Gemini. Possible causes: invalid payload format, invalid cookie, or Google Gemini internal changes.",
+          type: "invalid_request_error",
+          param: null,
+          code: "bad_request"
+        }
+      }
+    };
+  }
+
+  if (msg.includes("Upstream returned 403")) {
+    return {
+      status: 403,
+      body: {
+        error: {
+          message: "Access forbidden. Your Gemini cookie is invalid, expired, or blocked.",
+          type: "authentication_error",
+          param: null,
+          code: "forbidden"
+        }
+      }
+    };
+  }
+
   if (msg.includes("Upstream returned 429") || msg.includes("Too Many Requests")) {
     return {
       status: 429,
@@ -299,6 +473,20 @@ function normalizeError(err: any): { status: number; body: any } {
           type: "rate_limit_error",
           param: null,
           code: "upstream_rate_limit"
+        }
+      }
+    };
+  }
+
+  if (msg.includes("Upstream returned 500") || msg.includes("Upstream returned 502") || msg.includes("Upstream returned 503")) {
+    return {
+      status: 502,
+      body: {
+        error: {
+          message: "Google Gemini server error or service is temporarily unavailable.",
+          type: "api_error",
+          param: null,
+          code: "upstream_server_error"
         }
       }
     };
@@ -355,24 +543,123 @@ async function checkRateLimit(key: string, limitRpm: number): Promise<boolean> {
   }
 }
 
-async function verifyApiKey(authHeader: string | undefined, model: string): Promise<{
+async function verifyApiKey(request: any, model: string): Promise<{
   valid: boolean;
   projectId?: string;
   apiKeyId?: string;
+  customCookie?: string;
   error?: string;
   statusCode?: number;
 }> {
-  if (!authHeader) {
-    return { valid: false, error: "Missing Authorization header", statusCode: 401 };
+  let key = "";
+  const authHeader = request.headers.authorization;
+  const xApiKeyHeader = request.headers["x-api-key"];
+
+  if (authHeader) {
+    key = authHeader.replace(/^Bearer\s+/i, "").trim();
+  } else if (xApiKeyHeader) {
+    if (Array.isArray(xApiKeyHeader)) {
+      key = xApiKeyHeader[0].trim();
+    } else {
+      key = xApiKeyHeader.trim();
+    }
   }
-  const key = authHeader.replace("Bearer ", "").trim();
+
+  // Rate Limiting helper variables
+  let rateLimitKey = "";
+  let rateLimitRpm = 0;
+
+  // We check if key is a cookie first because it can be passed regardless of DB / Config
+  const isCookieStr = key.includes("SID=") || key.includes("__Secure-1PSID") || (key.includes(";") && key.includes("="));
+  
+  if (key && isCookieStr) {
+    const parseResult = parseAndValidateCookie(key);
+    if (!parseResult.valid) {
+      return { valid: false, error: parseResult.error || "Invalid cookie format", statusCode: 401 };
+    }
+
+    const { cookieStr, sapisid } = parseResult.data!;
+    const isConnOk = await isCookieValidCached(cookieStr, sapisid);
+    if (!isConnOk) {
+      return { valid: false, error: "Cookie expired or invalid. Please refresh your Gemini cookie.", statusCode: 401 };
+    }
+
+    // Set rate limit key for this cookie using its sha256 hash
+    rateLimitKey = `cookie:${crypto.createHash("sha256").update(cookieStr).digest("hex")}`;
+    rateLimitRpm = parseInt(process.env.DEFAULT_RATE_LIMIT_RPM || "15", 10);
+
+    // Rate Limit Check
+    if (rateLimitRpm > 0) {
+      const isRateOk = await checkRateLimit(rateLimitKey, rateLimitRpm);
+      if (!isRateOk) {
+        return { valid: false, error: "Rate limit exceeded. Please slow down.", statusCode: 429 };
+      }
+    }
+
+    return {
+      valid: true,
+      projectId: "00000000-0000-0000-0000-000000000000",
+      apiKeyId: "00000000-0000-0000-0000-000000000000",
+      customCookie: cookieStr
+    };
+  }
+
+  // 1. Check config.json api_keys
+  const configApiKeys = config.api_keys;
+  if (configApiKeys && Array.isArray(configApiKeys)) {
+    // If api_keys array is defined and empty, authentication is disabled (any request is valid)
+    if (configApiKeys.length === 0) {
+      return {
+        valid: true,
+        projectId: "00000000-0000-0000-0000-000000000000",
+        apiKeyId: "00000000-0000-0000-0000-000000000000"
+      };
+    }
+
+    if (!key) {
+      return { valid: false, error: "Missing API key / Authorization header", statusCode: 401 };
+    }
+
+    // Check if key matches config api_keys
+    if (configApiKeys.includes(key)) {
+      rateLimitKey = `static:${key}`;
+      rateLimitRpm = parseInt(process.env.DEFAULT_RATE_LIMIT_RPM || "15", 10);
+
+      if (rateLimitRpm > 0) {
+        const isRateOk = await checkRateLimit(rateLimitKey, rateLimitRpm);
+        if (!isRateOk) {
+          return { valid: false, error: "Rate limit exceeded. Please slow down.", statusCode: 429 };
+        }
+      }
+
+      return {
+        valid: true,
+        projectId: "00000000-0000-0000-0000-000000000000",
+        apiKeyId: "00000000-0000-0000-0000-000000000000"
+      };
+    }
+
+    return { valid: false, error: "Invalid API key", statusCode: 401 };
+  }
+
+  // 2. Fallback to normal validation
   if (!key) {
-    return { valid: false, error: "Invalid Authorization header format", statusCode: 401 };
+    return { valid: false, error: "Missing API key / Authorization header", statusCode: 401 };
   }
 
   // Pre-check for admin bypass keys (both custom env key and default sk-personal-gw)
   const adminKey = process.env.ADMIN_API_KEY || "sk-personal-gw";
   if (key === adminKey || key === "sk-personal-gw") {
+    rateLimitKey = `static:${key}`;
+    rateLimitRpm = parseInt(process.env.DEFAULT_RATE_LIMIT_RPM || "15", 10);
+
+    if (rateLimitRpm > 0) {
+      const isRateOk = await checkRateLimit(rateLimitKey, rateLimitRpm);
+      if (!isRateOk) {
+        return { valid: false, error: "Rate limit exceeded. Please slow down.", statusCode: 429 };
+      }
+    }
+
     return {
       valid: true,
       projectId: "00000000-0000-0000-0000-000000000000",
@@ -381,13 +668,16 @@ async function verifyApiKey(authHeader: string | undefined, model: string): Prom
   }
 
   if (!supabase) {
-    return { valid: false, error: "Database offline and key not default", statusCode: 503 };
+    return { valid: false, error: "Database offline and key is not recognized", statusCode: 503 };
   }
+
+  // Database lookup
   const { data, error } = await supabase
     .from("api_keys")
     .select("id, project_id, active, allowed_models, daily_requests_limit, daily_tokens_limit, rate_limit_rpm")
     .eq("key", key)
     .single();
+
   if (error || !data) {
     return { valid: false, error: "Invalid API key", statusCode: 401 };
   }
@@ -402,7 +692,7 @@ async function verifyApiKey(authHeader: string | undefined, model: string): Prom
   if (data.rate_limit_rpm && data.rate_limit_rpm > 0) {
     const isRateOk = await checkRateLimit(data.id, data.rate_limit_rpm);
     if (!isRateOk) {
-      return { valid: false, error: "Rate limit exceeded (RPM)", statusCode: 429 };
+      return { valid: false, error: "Rate limit exceeded. Please slow down.", statusCode: 429 };
     }
   }
 
@@ -465,7 +755,12 @@ async function logUsage(
   }
 }
 
-function buildGeminiRequest(prompt: string, modelId: number, thinkMode: number): { url: string; headers: Record<string, string>; body: string } {
+function buildGeminiRequest(
+  prompt: string,
+  modelId: number,
+  thinkMode: number,
+  customCookie?: string
+): { url: string; headers: Record<string, string>; body: string } {
   const inner = new Array(80).fill(null);
   inner[0] = [prompt, 0, null, null, null, null, 0];
   inner[1] = ["en"];
@@ -505,7 +800,30 @@ function buildGeminiRequest(prompt: string, modelId: number, thinkMode: number):
     headers["X-Goog-AuthUser"] = String(AUTH_USER);
   }
 
-  const { cookieStr, sapisid } = loadCookie();
+  let cookieStr = "";
+  let sapisid: string | null = null;
+
+  if (customCookie) {
+    const trimmed = customCookie.trim();
+    if (trimmed.startsWith("{")) {
+      try {
+        const data = JSON.parse(trimmed);
+        cookieStr = data.cookie || "";
+        sapisid = data.sapisid || cookieStr.match(/SAPISID=([^;]+)/)?.[1] || null;
+      } catch {
+        cookieStr = trimmed;
+        sapisid = trimmed.match(/SAPISID=([^;]+)/)?.[1] || null;
+      }
+    } else {
+      cookieStr = trimmed;
+      sapisid = trimmed.match(/SAPISID=([^;]+)/)?.[1] || null;
+    }
+  } else {
+    const loaded = loadCookie();
+    cookieStr = loaded.cookieStr;
+    sapisid = loaded.sapisid;
+  }
+
   if (cookieStr) {
     headers["Cookie"] = cookieStr;
   }
@@ -516,8 +834,13 @@ function buildGeminiRequest(prompt: string, modelId: number, thinkMode: number):
   return { url, headers, body: bodyParams.toString() };
 }
 
-async function geminiStreamGenerate(prompt: string, modelId: number, thinkMode: number): Promise<string> {
-  const { url, headers, body } = buildGeminiRequest(prompt, modelId, thinkMode);
+async function geminiStreamGenerate(
+  prompt: string,
+  modelId: number,
+  thinkMode: number,
+  customCookie?: string
+): Promise<string> {
+  const { url, headers, body } = buildGeminiRequest(prompt, modelId, thinkMode, customCookie);
 
   let lastErr: any = null;
   for (let attempt = 0; attempt < RETRY_ATTEMPTS; attempt++) {
@@ -545,7 +868,17 @@ server.register(import("@fastify/cors"), {
   origin: "*"
 });
 
-server.get("/health", async () => {
+server.get("/health", async (request, reply) => {
+  const loaded = loadCookie();
+  if (loaded.cookieStr) {
+    const isValid = await isCookieValidCached(loaded.cookieStr, loaded.sapisid);
+    if (!isValid) {
+      return reply.status(200).send({
+        status: "warning",
+        message: "Gemini session cookie has expired or is invalid. Please refresh the cookie file."
+      });
+    }
+  }
   return { status: "ok" };
 });
 
@@ -592,8 +925,7 @@ server.post("/v1/chat/completions", async (request, reply) => {
     });
   }
 
-  const authHeader = request.headers.authorization;
-  const auth = await verifyApiKey(authHeader, modelName);
+  const auth = await verifyApiKey(request, modelName);
   if (!auth.valid) {
     return reply.status(auth.statusCode || 401).send({
       error: {
@@ -620,6 +952,7 @@ server.post("/v1/chat/completions", async (request, reply) => {
   const stream = req.stream === true;
   const cid = `chatcmpl-${uuidv4().replace(/-/g, "").substring(0, 12)}`;
   const startTime = Date.now();
+  const customCookie = auth.customCookie;
 
   if (stream) {
     reply.raw.writeHead(200, {
@@ -633,7 +966,7 @@ server.post("/v1/chat/completions", async (request, reply) => {
       let responseText = "";
 
       try {
-        const { url, headers, body } = buildGeminiRequest(prompt, cfg.mode, cfg.think);
+        const { url, headers, body } = buildGeminiRequest(prompt, cfg.mode, cfg.think, customCookie);
 
         // Execute fetch call inside Circuit Breaker
         const response = await geminiCircuitBreaker.execute(async () => {
@@ -682,15 +1015,15 @@ server.post("/v1/chat/completions", async (request, reply) => {
                         let delta = t.substring(prevText.length);
                         delta = cleanGeminiText(delta);
                         if (delta) {
-                          responseText += delta;
-                          const chunk = {
-                            id: cid,
-                            object: "chat.completion.chunk",
-                            created: Math.floor(Date.now() / 1000),
-                            model: modelName,
-                            choices: [{ index: 0, delta: { content: delta }, finish_reason: null }]
-                          };
-                          reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
+                           responseText += delta;
+                           const chunk = {
+                             id: cid,
+                             object: "chat.completion.chunk",
+                             created: Math.floor(Date.now() / 1000),
+                             model: modelName,
+                             choices: [{ index: 0, delta: { content: delta }, finish_reason: null }]
+                           };
+                           reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
                         }
                         prevText = t;
                       }
@@ -752,7 +1085,7 @@ server.post("/v1/chat/completions", async (request, reply) => {
     } else {
       try {
         // Execute stream generate inside Circuit Breaker
-        const raw = await geminiCircuitBreaker.execute(() => geminiStreamGenerate(prompt, cfg.mode, cfg.think));
+        const raw = await geminiCircuitBreaker.execute(() => geminiStreamGenerate(prompt, cfg.mode, cfg.think, customCookie));
         const text = extractResponseText(raw);
         const { cleanText, toolCalls } = parseToolCalls(text);
 
@@ -844,7 +1177,7 @@ server.post("/v1/chat/completions", async (request, reply) => {
   }
 
   try {
-    const raw = await geminiCircuitBreaker.execute(() => geminiStreamGenerate(prompt, cfg.mode, cfg.think));
+    const raw = await geminiCircuitBreaker.execute(() => geminiStreamGenerate(prompt, cfg.mode, cfg.think, customCookie));
     const text = extractResponseText(raw);
     const { cleanText, toolCalls } = parseToolCalls(text);
 
@@ -919,8 +1252,7 @@ server.post("/v1/responses", async (request, reply) => {
     });
   }
 
-  const authHeader = request.headers.authorization;
-  const auth = await verifyApiKey(authHeader, modelName);
+  const auth = await verifyApiKey(request, modelName);
   if (!auth.valid) {
     return reply.status(auth.statusCode || 401).send({
       error: {
@@ -1000,9 +1332,10 @@ server.post("/v1/responses", async (request, reply) => {
   }
 
   const startTime = Date.now();
+  const customCookie = auth.customCookie;
 
   try {
-    const raw = await geminiCircuitBreaker.execute(() => geminiStreamGenerate(prompt, cfg.mode, cfg.think));
+    const raw = await geminiCircuitBreaker.execute(() => geminiStreamGenerate(prompt, cfg.mode, cfg.think, customCookie));
     const text = extractResponseText(raw);
     const { cleanText, toolCalls } = parseToolCalls(text);
 
