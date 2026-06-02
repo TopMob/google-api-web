@@ -18,8 +18,15 @@ import {
   Activity,
   Clock,
   Settings,
-  Plus
+  Plus,
+  HelpCircle,
+  ExternalLink,
+  Info,
+  Lock,
+  FileText,
+  BookOpen
 } from "lucide-react";
+
 
 interface Message {
   role: "user" | "assistant";
@@ -59,8 +66,17 @@ interface UsageLog {
 }
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<"playground" | "keys" | "logs">("playground");
+  const [activeTab, setActiveTab] = useState<"playground" | "keys" | "logs" | "faq">("playground");
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [cookieTestInput, setCookieTestInput] = useState("");
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [isTestingCookie, setIsTestingCookie] = useState(false);
   const [gatewayStatus, setGatewayStatus] = useState<"online" | "offline" | "checking">("checking");
+  const [activeProvider, setActiveProvider] = useState<"opencode" | "vscode" | "codex" | "codex_cli" | "openclaw" | "cursor" | "jetbrains" | "zed">("opencode");
+  const [activePlatform, setActivePlatform] = useState<"windows" | "macos" | "linux">("windows");
+
+
+
   const [gatewayUrl, setGatewayUrl] = useState("http://127.0.0.1:8081");
   const [models, setModels] = useState<string[]>([
     "gemini-3.5-flash",
@@ -184,6 +200,70 @@ export default function Home() {
     setCopiedKey(text);
     setTimeout(() => setCopiedKey(null), 2000);
   };
+
+  const copyGuideText = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const handleTestCookie = async () => {
+    if (!cookieTestInput.trim()) return;
+    setIsTestingCookie(true);
+    setTestResult(null);
+    try {
+      const res = await fetch("/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${cookieTestInput}`
+        },
+        body: JSON.stringify({
+          model: selectedModel || "gemini-3.5-flash",
+          messages: [{ role: "user", content: "Привет. Ответь ровно одним словом 'OK'" }],
+          max_tokens: 5
+        })
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setTestResult({
+          success: true,
+          message: "Куки успешно валидированы! Шлюз подтвердил соединение с Google Gemini."
+        });
+      } else {
+        let errMsg = "Ошибка проверки. Проверьте правильность скопированных куки.";
+        if (data.error) {
+          try {
+            const parsedError = JSON.parse(data.error);
+            if (parsedError.error?.message) {
+              errMsg = parsedError.error.message;
+            } else if (parsedError.message) {
+              errMsg = parsedError.message;
+            } else {
+              errMsg = data.error;
+            }
+          } catch {
+            errMsg = data.error.message || data.error;
+          }
+        }
+        setTestResult({
+          success: false,
+          message: errMsg
+        });
+      }
+    } catch (err: any) {
+      setTestResult({
+        success: false,
+        message: `Не удалось связаться со шлюзом: ${err.message}`
+      });
+    } finally {
+      setIsTestingCookie(false);
+    }
+  };
+
+
 
   const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -372,7 +452,17 @@ export default function Home() {
               <Terminal size={16} />
               <span>Real-time Usage Logs</span>
             </button>
+            <button
+              onClick={() => setActiveTab("faq")}
+              className={`flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-semibold transition ${
+                activeTab === "faq" ? "bg-blue-600/10 text-blue-400 border border-blue-500/20" : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <HelpCircle size={16} />
+              <span>FAQ / Cookie Guide</span>
+            </button>
           </div>
+
 
           <div className="space-y-4">
             <div>
@@ -479,8 +569,30 @@ export default function Home() {
         <header className="h-16 border-b border-[#1a1d2e] bg-[#0c0e18]/80 backdrop-blur px-8 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="text-sm font-bold flex items-center gap-2">
-              <Bot size={16} className="text-blue-400" />
-              <span>Gateway Playroom</span>
+              {activeTab === "playground" && (
+                <>
+                  <Bot size={16} className="text-blue-400" />
+                  <span>Gateway Playroom</span>
+                </>
+              )}
+              {activeTab === "keys" && (
+                <>
+                  <Key size={16} className="text-blue-400" />
+                  <span>Projects & API Keys</span>
+                </>
+              )}
+              {activeTab === "logs" && (
+                <>
+                  <Terminal size={16} className="text-blue-400" />
+                  <span>Real-time Usage Logs</span>
+                </>
+              )}
+              {activeTab === "faq" && (
+                <>
+                  <HelpCircle size={16} className="text-blue-400" />
+                  <span>FAQ & Cookie Instructions</span>
+                </>
+              )}
             </div>
             <span className="h-4 w-px bg-[#1a1d2e]" />
             <div className="text-xs text-slate-400 flex items-center gap-1.5">
@@ -488,6 +600,7 @@ export default function Home() {
               <span>Model: <span className="font-mono font-bold text-slate-200">{selectedModel}</span></span>
             </div>
           </div>
+
 
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-6">
@@ -842,6 +955,411 @@ export default function Home() {
                   ))
                 )}
               </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "faq" && (
+          <div className="flex-grow overflow-y-auto px-8 py-8 space-y-8 custom-scrollbar">
+            {/* Header banner */}
+            <div className="relative overflow-hidden bg-gradient-to-r from-blue-600/10 via-indigo-600/5 to-transparent border border-blue-500/20 rounded-2xl p-6 shadow-lg">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none" />
+              <div className="flex items-start gap-4">
+                <div className="p-3 bg-blue-500/15 border border-blue-500/20 rounded-xl text-blue-400 shrink-0">
+                  <HelpCircle size={24} />
+                </div>
+                <div className="space-y-1">
+                  <h2 className="text-base font-bold text-slate-100">Инструкция по добавлению cookie</h2>
+                  <p className="text-xs text-slate-400 leading-relaxed max-w-2xl">
+                    Для полноценной работы с Google Gemini Pro и обхода ограничений стандартного API, вы можете использовать авторизационные куки Google сессии. Следуйте шагам ниже, чтобы извлечь их и настроить совместимость.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Warning/Notice */}
+            <div className="flex items-start gap-3 p-4 bg-amber-500/5 border border-amber-500/15 rounded-xl">
+              <Lock size={16} className="text-amber-400 shrink-0 mt-0.5" />
+              <div className="text-xs text-slate-300 leading-normal">
+                <strong className="text-amber-400">Важная безопасность:</strong> Мы никогда не храним ваши куки централизованно. Они передаются напрямую в заголовке авторизации вашего запроса, гарантируя, что ваш Google аккаунт остается полностью под вашим контролем.
+              </div>
+            </div>
+
+            {/* Grid Layout for Guide & Contents */}
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+              {/* Left sidebar: Steps Quick Navigation */}
+              <div className="lg:col-span-1 space-y-3">
+                <div className="text-[10px] uppercase font-bold tracking-wider text-slate-500 px-2">Содержание</div>
+                <nav className="space-y-1">
+                  {[
+                    { id: "step-extract", label: "1. Как получить Cookie" },
+                    { id: "step-auth", label: "2. Передача как API Key" },
+                    { id: "step-clients", label: "3. Настройка в клиентах" },
+                    { id: "step-config", label: "4. Настройка на сервере" },
+                    { id: "step-test", label: "5. Проверить куки онлайн" },
+                    { id: "step-trouble", label: "6. Частые проблемы" },
+                  ].map((item) => (
+                    <a
+                      key={item.id}
+                      href={`#${item.id}`}
+                      className="block px-3 py-2 text-xs text-slate-400 hover:text-blue-400 rounded-lg hover:bg-slate-800/20 transition-all font-medium"
+                    >
+                      {item.label}
+                    </a>
+                  ))}
+                </nav>
+              </div>
+
+
+              {/* Right: Detailed Content */}
+              <div className="lg:col-span-3 space-y-10">
+                {/* Step 1: Extract Cookies */}
+                <section id="step-extract" className="bg-[#0c0e18] border border-[#1a1d2e] rounded-2xl p-6 space-y-6 scroll-mt-6">
+                  <div className="border-b border-[#1e233b] pb-4 flex items-center gap-2">
+                    <BookOpen size={18} className="text-blue-400" />
+                    <h3 className="text-sm font-bold text-slate-100">1. Как извлечь cookie из браузера</h3>
+                  </div>
+
+                  <div className="space-y-4 text-xs text-slate-300">
+                    <p className="leading-relaxed">
+                      Для извлечения кук вам понадобится браузер Chrome, Firefox или любой другой на базе Chromium.
+                    </p>
+
+                    <div className="relative border-l-2 border-blue-500/30 pl-4 space-y-4 py-1">
+                      <div className="space-y-1">
+                        <div className="font-bold text-slate-200">Шаг 1: Авторизация в Gemini</div>
+                        <p className="text-slate-400">
+                          Перейдите на сайт <a href="https://gemini.google.com" target="_blank" rel="noreferrer" className="text-blue-400 hover:underline inline-flex items-center gap-0.5">gemini.google.com <ExternalLink size={10} /></a> и войдите под своей учетной записью Google.
+                        </p>
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="font-bold text-slate-200">Шаг 2: Открытие инструментов разработчика</div>
+                        <p className="text-slate-400">
+                          Нажмите клавишу <kbd className="px-1.5 py-0.5 bg-[#121626] border border-[#1e233b] rounded text-[10px] font-mono text-slate-300">F12</kbd> (или нажмите правой кнопкой мыши в любом месте страницы и выберите «Исследовать элемент / Посмотреть код»).
+                        </p>
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="font-bold text-slate-200">Шаг 3: Поиск cookies</div>
+                        <p className="text-slate-400">
+                          В верхней панели инструментов разработчика выберите вкладку <strong className="text-slate-200">«Application»</strong> (Приложение) ➔ в левом меню разверните список <strong className="text-slate-200">«Cookies»</strong> ➔ выберите <strong className="text-blue-400">https://gemini.google.com</strong>.
+                        </p>
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="font-bold text-slate-200">Шаг 4: Копирование параметров</div>
+                        <p className="text-slate-400 mb-2">Найдите в таблице следующие ключи и скопируйте их значения:</p>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+                          <div className="p-3 bg-[#121626] border border-[#1e233b] rounded-xl">
+                            <span className="font-mono text-blue-400 font-bold block text-[10px]">__Secure-1PSID</span>
+                            <span className="text-[10px] text-slate-500">Основной токен сессии (обязательно)</span>
+                          </div>
+                          <div className="p-3 bg-[#121626] border border-[#1e233b] rounded-xl">
+                            <span className="font-mono text-blue-400 font-bold block text-[10px]">SID</span>
+                            <span className="text-[10px] text-slate-500">Идентификатор сессии (обязательно)</span>
+                          </div>
+                          <div className="p-3 bg-[#121626] border border-[#1e233b] rounded-xl">
+                            <span className="font-mono text-blue-400 font-bold block text-[10px]">SAPISID</span>
+                            <span className="text-[10px] text-slate-500">Подпись API запросов (обязательно)</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                {/* Step 2: Use as Bearer Auth */}
+                <section id="step-auth" className="bg-[#0c0e18] border border-[#1a1d2e] rounded-2xl p-6 space-y-6 scroll-mt-6">
+                  <div className="border-b border-[#1e233b] pb-4 flex items-center gap-2">
+                    <Key size={18} className="text-blue-400" />
+                    <h3 className="text-sm font-bold text-slate-100">2. Передача Cookie как API-ключа (Bearer Authorization)</h3>
+                  </div>
+
+                  <div className="space-y-4 text-xs text-slate-300">
+                    <p className="leading-relaxed">
+                      Наш шлюз спроектирован так, что вы можете передавать свои куки напрямую вместо стандартного API-ключа в любом OpenAI-совместимом приложении!
+                    </p>
+                    <p className="leading-relaxed">
+                      Для этого соберите строку ваших кук в следующем формате (через точку с запятой):
+                    </p>
+
+                    <div className="relative bg-[#121626] border border-[#1e233b] rounded-xl p-4 font-mono text-[11px] text-slate-300 break-all select-all flex justify-between items-center gap-4">
+                      <span>
+                        SID=<span className="text-blue-400">ваш_SID</span>; SAPISID=<span className="text-blue-400">ваш_SAPISID</span>; __Secure-1PSID=<span className="text-blue-400">ваш___Secure-1PSID</span>;
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => copyGuideText("SID=your_sid; SAPISID=your_sapisid; __Secure-1PSID=your_1psid;", "cookie-format")}
+                        className="text-slate-500 hover:text-blue-400 transition shrink-0 p-1 bg-slate-800/30 rounded"
+                        title="Скопировать шаблон"
+                      >
+                        {copiedId === "cookie-format" ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-2.5 p-3.5 bg-blue-500/5 border border-blue-500/10 rounded-xl">
+                      <Info size={14} className="text-blue-400 shrink-0" />
+                      <span>
+                        Передавайте эту собранную строку в заголовке: <code className="text-blue-400 font-mono text-[10px] bg-blue-950/20 px-1 py-0.5 rounded">Authorization: Bearer SID=...; SAPISID=...; __Secure-1PSID=...</code>
+                      </span>
+                    </div>
+                  </div>
+                </section>
+
+                {/* Step 3: Client Configs */}
+                <section id="step-clients" className="bg-[#0c0e18] border border-[#1a1d2e] rounded-2xl p-6 space-y-6 scroll-mt-6">
+                  <div className="border-b border-[#1e233b] pb-4 flex items-center gap-2">
+                    <FileText size={18} className="text-blue-400" />
+                    <h3 className="text-sm font-bold text-slate-100">3. Настройка в сторонних клиентах (OpenCode / NextChat)</h3>
+                  </div>
+
+                  <div className="space-y-5 text-xs text-slate-300">
+                    <div className="space-y-2">
+                      <h4 className="font-bold text-slate-200">Настройка в NextChat / LobeChat / др.</h4>
+                      <p className="text-slate-400 leading-relaxed">
+                        В настройках любого OpenAI-совместимого веб-интерфейса или приложения укажите:
+                      </p>
+                      <ul className="list-disc pl-5 space-y-1.5 text-slate-400">
+                        <li><strong className="text-slate-300">Base URL:</strong> <code className="text-blue-400 font-mono">http://localhost:3000/api/v1</code> (или адрес вашего развернутого шлюза)</li>
+                        <li><strong className="text-slate-300">API Key:</strong> <code className="text-blue-400 font-mono">SID=ваш_SID; SAPISID=ваш_SAPISID; __Secure-1PSID=ваш___Secure-1PSID;</code></li>
+                      </ul>
+                    </div>
+
+                    <div className="space-y-2.5">
+                      <h4 className="font-bold text-slate-200">Настройка через файл opencode.json</h4>
+                      <p className="text-slate-400 leading-relaxed">
+                        Если вы настраиваете провайдер через файл конфигурации `opencode.json`, используйте следующий шаблон:
+                      </p>
+                      <div className="relative bg-[#121626] border border-[#1e233b] rounded-xl p-4 font-mono text-[11px] text-slate-300 block">
+                        <pre className="overflow-x-auto text-[10px] leading-relaxed select-all">
+{`{
+  "providers": [
+    {
+      "id": "gemini-web-gateway",
+      "name": "Gemini Web Proxy",
+      "api_type": "openai",
+      "api_url": "http://localhost:3000/api/v1",
+      "api_key": "SID=your_sid_here; SAPISID=your_sapisid_here; __Secure-1PSID=your_secure_1psid_here;",
+      "models": ["gemini-3.5-flash", "gemini-3.1-pro"]
+    }
+  ]
+}`}
+                        </pre>
+                        <button
+                          type="button"
+                          onClick={() => copyGuideText(`{\n  "providers": [\n    {\n      "id": "gemini-web-gateway",\n      "name": "Gemini Web Proxy",\n      "api_type": "openai",\n      "api_url": "http://localhost:3000/api/v1",\n      "api_key": "SID=your_sid_here; SAPISID=your_sapisid_here; __Secure-1PSID=your_secure_1psid_here;",\n      "models": ["gemini-3.5-flash", "gemini-3.1-pro"]\n    }\n  ]\n}`, "opencode-json")}
+                          className="absolute top-4 right-4 text-slate-500 hover:text-blue-400 transition shrink-0 p-1 bg-slate-800/30 rounded"
+                          title="Скопировать JSON"
+                        >
+                          {copiedId === "opencode-json" ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                {/* Step 4: Server configurations */}
+                <section id="step-config" className="bg-[#0c0e18] border border-[#1a1d2e] rounded-2xl p-6 space-y-6 scroll-mt-6">
+                  <div className="border-b border-[#1e233b] pb-4 flex items-center gap-2">
+                    <Settings size={18} className="text-blue-400" />
+                    <h3 className="text-sm font-bold text-slate-100">4. Настройка централизованно на сервере</h3>
+                  </div>
+
+                  <div className="space-y-4 text-xs text-slate-300">
+                    <p className="leading-relaxed">
+                      Если вы хотите развернуть шлюз с общими куками для всех ваших ключей, вы можете настроить файл `cookie.txt` в корне проекта или прописать конфигурацию в файле `config.json` шлюза.
+                    </p>
+
+                    <div className="space-y-2">
+                      <h4 className="font-bold text-slate-200">Способ A: Создание cookie.txt</h4>
+                      <p className="text-slate-400">
+                        Создайте файл с именем <code className="text-blue-400 font-mono">cookie.txt</code> в папке шлюза и поместите туда одну строку с куками:
+                      </p>
+                      <div className="relative bg-[#121626] border border-[#1e233b] rounded-xl p-4 font-mono text-[11px] text-slate-300 break-all select-all flex justify-between items-center gap-4">
+                        <span>SID=your_sid; HSID=your_hsid; SSID=your_ssid; SAPISID=your_sapisid; __Secure-1PSID=your_1psid;</span>
+                        <button
+                          type="button"
+                          onClick={() => copyGuideText("SID=your_sid; HSID=your_hsid; SSID=your_ssid; SAPISID=your_sapisid; __Secure-1PSID=your_1psid;", "cookie-txt-format")}
+                          className="text-slate-500 hover:text-blue-400 transition shrink-0 p-1 bg-slate-800/30 rounded"
+                          title="Скопировать"
+                        >
+                          {copiedId === "cookie-txt-format" ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <h4 className="font-bold text-slate-200">Способ B: Формат JSON конфигурации (config.json)</h4>
+                      <p className="text-slate-400">
+                        Или укажите куки в конфигурации в следующем формате:
+                      </p>
+                      <div className="relative bg-[#121626] border border-[#1e233b] rounded-xl p-4 font-mono text-[11px] text-slate-300 block">
+                        <pre className="overflow-x-auto text-[10px] leading-relaxed select-all">
+{`{
+  "cookie": "SID=xxx; HSID=xxx; SSID=xxx; APISID=xxx; SAPISID=xxx; __Secure-1PSID=xxx",
+  "sapisid": "your_sapisid_value"
+}`}
+                        </pre>
+                        <button
+                          type="button"
+                          onClick={() => copyGuideText(`{\n  "cookie": "SID=xxx; HSID=xxx; SSID=xxx; APISID=xxx; SAPISID=xxx; __Secure-1PSID=xxx",\n  "sapisid": "your_sapisid_value"\n}`, "config-json-format")}
+                          className="absolute top-4 right-4 text-slate-500 hover:text-blue-400 transition shrink-0 p-1 bg-slate-800/30 rounded"
+                          title="Скопировать JSON"
+                        >
+                          {copiedId === "config-json-format" ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                {/* Step 5: Test Cookie Online */}
+                <section id="step-test" className="bg-[#0c0e18] border border-[#1a1d2e] rounded-2xl p-6 space-y-6 scroll-mt-6">
+                  <div className="border-b border-[#1e233b] pb-4 flex items-center gap-2">
+                    <Activity size={18} className="text-blue-400" />
+                    <h3 className="text-sm font-bold text-slate-100">5. Онлайн-проверка cookie</h3>
+                  </div>
+
+                  <div className="space-y-4 text-xs text-slate-300">
+                    <p className="leading-relaxed">
+                      Вы можете проверить валидность полученной строки cookies в реальном времени. Вставьте собранную строку или JSON-объект ниже и нажмите кнопку «Проверить».
+                    </p>
+
+                    <div className="space-y-3">
+                      <textarea
+                        value={cookieTestInput}
+                        onChange={(e) => setCookieTestInput(e.target.value)}
+                        placeholder="Вставьте ваши cookie (например, SID=...; SAPISID=...; __Secure-1PSID=...;)"
+                        rows={3}
+                        className="w-full bg-[#121626] border border-[#1e233b] hover:border-blue-500/50 focus:border-blue-500/80 rounded-xl px-4 py-3 text-xs outline-none text-slate-200 font-mono resize-y transition"
+                      />
+                      
+                      <div className="flex justify-between items-center">
+                        <button
+                          type="button"
+                          onClick={handleTestCookie}
+                          disabled={isTestingCookie || !cookieTestInput.trim()}
+                          className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white rounded-xl px-5 py-2.5 text-xs font-semibold transition flex items-center gap-2"
+                        >
+                          {isTestingCookie ? (
+                            <>
+                              <RefreshCw size={14} className="animate-spin" />
+                              <span>Проверка...</span>
+                            </>
+                          ) : (
+                            <span>Проверить cookie</span>
+                          )}
+                        </button>
+                        
+                        {testResult && (
+                          <div className={`px-4 py-2.5 rounded-xl border text-[11px] font-semibold flex items-center gap-2 ${
+                            testResult.success 
+                              ? "bg-emerald-500/5 border-emerald-500/20 text-emerald-400" 
+                              : "bg-rose-500/5 border-rose-500/20 text-rose-400"
+                          }`}>
+                            <span className={`h-2 w-2 rounded-full ${testResult.success ? "bg-emerald-500" : "bg-rose-500"}`} />
+                            <span>{testResult.message}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                {/* Step 6: Troubleshooting / Частые проблемы */}
+                <section id="step-trouble" className="bg-[#0c0e18] border border-[#1a1d2e] rounded-2xl p-6 space-y-6 scroll-mt-6">
+                  <div className="border-b border-[#1e233b] pb-4 flex items-center gap-2">
+                    <Shield size={18} className="text-blue-400" />
+                    <h3 className="text-sm font-bold text-slate-100">6. Частые проблемы и решения</h3>
+                  </div>
+
+                  <div className="space-y-6 text-xs text-slate-300">
+                    <div className="space-y-2 border-b border-[#1e233b]/30 pb-4">
+                      <h4 className="font-bold text-slate-200 flex items-center gap-1.5">
+                        <span className="text-amber-400">1.</span> Ошибка &quot;Cookie expired or invalid&quot;
+                      </h4>
+                      <p className="text-slate-400 leading-relaxed pl-5">
+                        <strong>Причина:</strong> Срок действия куки Google истёк (обычно сессия живет от 7 до 30 дней).
+                      </p>
+                      <p className="text-slate-400 leading-relaxed pl-5">
+                        <strong>Решение:</strong> Перейдите на <a href="https://gemini.google.com" target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">gemini.google.com</a>, войдите заново, затем откройте инструменты разработчика и скопируйте обновленные значения cookie.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2 border-b border-[#1e233b]/30 pb-4">
+                      <h4 className="font-bold text-slate-200 flex items-center gap-1.5">
+                        <span className="text-amber-400">2.</span> Ошибка &quot;Rate limit exceeded&quot;
+                      </h4>
+                      <p className="text-slate-400 leading-relaxed pl-5">
+                        <strong>Причина:</strong> Превышено стандартное ограничение по количеству запросов (по умолчанию 15 запросов в минуту).
+                      </p>
+                      <p className="text-slate-400 leading-relaxed pl-5">
+                        <strong>Решение:</strong> Подождите 60 секунд перед отправкой следующего запроса. Также вы можете настроить индивидуальный лимит RPM для сгенерированных API-ключей в разделе <strong>Projects &amp; API Keys</strong>.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2 border-b border-[#1e233b]/30 pb-4">
+                      <h4 className="font-bold text-slate-200 flex items-center gap-1.5">
+                        <span className="text-amber-400">3.</span> Ошибка &quot;Invalid cookie format&quot;
+                      </h4>
+                      <p className="text-slate-400 leading-relaxed pl-5">
+                        <strong>Причина:</strong> Скопированы не все требуемые сессионные параметры.
+                      </p>
+                      <p className="text-slate-400 leading-relaxed pl-5">
+                        <strong>Решение:</strong> Убедитесь, что строка cookies содержит хотя бы <code className="text-blue-400 font-mono text-[10px] bg-slate-900/40 px-1 py-0.5 rounded">__Secure-1PSID</code> или комбинацию <code className="text-blue-400 font-mono text-[10px] bg-slate-900/40 px-1 py-0.5 rounded">SID</code> + <code className="text-blue-400 font-mono text-[10px] bg-slate-900/40 px-1 py-0.5 rounded">SAPISID</code>.
+                      </p>
+                    </div>
+
+                    <div className="space-y-3 border-b border-[#1e233b]/30 pb-4">
+                      <h4 className="font-bold text-slate-200 flex items-center gap-1.5">
+                        <span className="text-amber-400">4.</span> OpenCode не подключается
+                      </h4>
+                      <p className="text-slate-400 leading-relaxed pl-5">
+                        <strong>Причина:</strong> Неверный адрес <code className="text-slate-200 font-mono bg-slate-900/40 px-1 py-0.5 rounded">baseURL</code> или ключ авторизации.
+                      </p>
+                      <p className="text-slate-400 leading-relaxed pl-5">
+                        <strong>Решение:</strong> Проверьте файл конфигурации <code className="text-slate-200 font-mono bg-slate-900/40 px-1 py-0.5 rounded">opencode.json</code>. Убедитесь, что провайдер настроен так:
+                      </p>
+                      <div className="relative bg-[#121626] border border-[#1e233b] rounded-xl p-4 font-mono text-[10px] text-slate-300 block ml-5">
+                        <pre className="overflow-x-auto leading-relaxed select-all">
+{`{
+  "provider": {
+    "gemini-web2api": {
+      "options": {
+        "baseURL": "http://localhost:8081/v1",
+        "apiKey": "SID=your_sid; __Secure-1PSID=your_secure_psid..."
+      }
+    }
+  }
+}`}
+                        </pre>
+                        <button
+                          type="button"
+                          onClick={() => copyGuideText(`{\n  "provider": {\n    "gemini-web2api": {\n      "options": {\n        "baseURL": "http://localhost:8081/v1",\n        "apiKey": "SID=your_sid; __Secure-1PSID=your_secure_psid..."\n      }\n    }\n  }\n}`, "opencode-trouble-json")}
+                          className="absolute top-4 right-4 text-slate-500 hover:text-blue-400 transition shrink-0 p-1 bg-slate-800/30 rounded"
+                          title="Скопировать"
+                        >
+                          {copiedId === "opencode-trouble-json" ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <h4 className="font-bold text-slate-200 flex items-center gap-1.5">
+                        <span className="text-amber-400">5.</span> Локальный шлюз (сервер) не запускается
+                      </h4>
+                      <p className="text-slate-400 leading-relaxed pl-5">
+                        <strong>Причина:</strong> Порт 8081 (или настроенный порт) уже занят другим приложением на компьютере.
+                      </p>
+                      <p className="text-slate-400 leading-relaxed pl-5">
+                        <strong>Решение:</strong> Измените параметр <code className="text-slate-200 font-mono bg-slate-900/40 px-1 py-0.5 rounded">&quot;port&quot;: 8081</code> в файле <code className="text-slate-200 font-mono bg-slate-900/40 px-1 py-0.5 rounded">config.json</code> на любой другой свободный порт или завершите процесс, который занимает этот порт.
+                      </p>
+                    </div>
+                  </div>
+                </section>
+              </div>
+
             </div>
           </div>
         )}
