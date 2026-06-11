@@ -73,11 +73,19 @@ if (redis) {
   logger.info("Redis client connected");
 }
 
+let cachedCookie: { cookieStr: string; sapisid: string | null; timestamp: number } | null = null;
+const COOKIE_FILE_TTL_MS = 60 * 1000;
+
 function loadCookie(): { cookieStr: string; sapisid: string | null } {
   if (process.env.GEMINI_COOKIE) {
     const cookieStr = process.env.GEMINI_COOKIE.trim();
     const match = cookieStr.match(/SAPISID=([^;]+)/);
     return { cookieStr, sapisid: match ? match[1] : null };
+  }
+
+  const now = Date.now();
+  if (cachedCookie && now - cachedCookie.timestamp < COOKIE_FILE_TTL_MS) {
+    return { cookieStr: cachedCookie.cookieStr, sapisid: cachedCookie.sapisid };
   }
 
   const paths: string[] = [];
@@ -98,13 +106,16 @@ function loadCookie(): { cookieStr: string; sapisid: string | null } {
     if (fs.existsSync(p)) {
       try {
         const content = fs.readFileSync(p, "utf-8").trim();
+        let result = { cookieStr: "", sapisid: null as string | null };
         if (content.startsWith("{")) {
           const data = JSON.parse(content);
-          return { cookieStr: data.cookie || "", sapisid: data.sapisid || null };
+          result = { cookieStr: data.cookie || "", sapisid: data.sapisid || null };
         } else {
           const match = content.match(/SAPISID=([^;]+)/);
-          return { cookieStr: content, sapisid: match ? match[1] : null };
+          result = { cookieStr: content, sapisid: match ? match[1] : null };
         }
+        cachedCookie = { ...result, timestamp: now };
+        return result;
       } catch (e) {
         logger.error({ err: e }, "Failed to read cookie file");
       }
@@ -218,7 +229,12 @@ async function isCookieValidCached(cookieStr: string, sapisid: string | null): P
   }
 
   const isValid = await testGeminiConnection(cookieStr, sapisid);
-  cookieValidationCache.set(cacheKey, { isValid, timestamp: now });
+  if (isValid) {
+    cookieValidationCache.set(cacheKey, { isValid, timestamp: now });
+  } else {
+    // Cache failures for only 10 seconds to prevent spam, but allow quick recovery
+    cookieValidationCache.set(cacheKey, { isValid, timestamp: now - CACHE_TTL_MS + 10000 });
+  }
   return isValid;
 }
 
@@ -227,38 +243,25 @@ function cleanGeminiText(text: string): string {
 }
 
 function extractResponseText(raw: string): string {
-  const texts: string[] = [];
-  const lines = raw.split("\n");
-  for (const line of lines) {
-    if (!line.includes('"wrb.fr"') || line.length < 200) {
-      continue;
-    }
+  let finalResult = "";
+  for (const line of raw.split("\n")) {
+    if (!line.includes('"wrb.fr"') || line.length < 200) continue;
     try {
-      const arr = JSON.parse(line);
-      const innerStr = arr[0][2];
+      const innerStr = JSON.parse(line)[0][2];
       if (!innerStr || innerStr.length < 50) continue;
       const inner = JSON.parse(innerStr);
       if (Array.isArray(inner) && inner[4]) {
+        let text = "";
         for (const part of inner[4]) {
           if (Array.isArray(part) && part[1] && Array.isArray(part[1])) {
-            for (const t of part[1]) {
-              if (typeof t === "string" && t.length > 0) {
-                texts.push(t);
-              }
-            }
+            text += part[1].filter((t: any) => typeof t === "string").join("");
           }
         }
+        if (text.trim()) finalResult = text;
       }
     } catch {}
   }
-  let text = "";
-  for (let i = texts.length - 1; i >= 0; i--) {
-    if (texts[i].trim()) {
-      text = texts[i];
-      break;
-    }
-  }
-  return cleanGeminiText(text).trim();
+  return cleanGeminiText(finalResult).trim();
 }
 
 function messagesToPrompt(messages: any[], tools?: any[]): string {
@@ -314,17 +317,13 @@ function messagesToPrompt(messages: any[], tools?: any[]): string {
 function parseToolCalls(text: string): { cleanText: string; toolCalls: any[] | null } {
   const toolCalls: any[] = [];
   const regex = /```tool_call\s*\n([\s\S]*?)\n```/g;
-  let match;
-  while ((match = regex.exec(text)) !== null) {
+  for (const match of text.matchAll(regex)) {
     try {
       const data = JSON.parse(match[1].trim());
       toolCalls.push({
         id: `call_${Math.random().toString(36).substring(2, 10)}`,
         type: "function",
-        function: {
-          name: data.name,
-          arguments: JSON.stringify(data.arguments || {})
-        }
+        function: { name: data.name, arguments: JSON.stringify(data.arguments || {}) }
       });
     } catch {}
   }
@@ -387,16 +386,21 @@ class CircuitBreaker {
         }
       }
       return result;
-    } catch (err) {
-      this.failures++;
-      this.lastFailureTime = Date.now();
-      logger.warn({ failures: this.failures, state: this.state }, "Upstream call failed, incrementing circuit breaker failure count");
-      if (this.state === "CLOSED" && this.failures >= this.failureThreshold) {
-        this.state = "OPEN";
-        logger.error("Circuit breaker tripped to OPEN state");
-      } else if (this.state === "HALF-OPEN") {
-        this.state = "OPEN";
-        logger.error("Circuit breaker tripped back to OPEN state from HALF-OPEN");
+    } catch (err: any) {
+      const msg = err.message || "";
+      const isClientError = msg.includes("returned 400") || msg.includes("returned 401") || msg.includes("returned 403") || msg.includes("returned 404");
+      
+      if (!isClientError) {
+        this.failures++;
+        this.lastFailureTime = Date.now();
+        logger.warn({ failures: this.failures, state: this.state }, "Upstream call failed, incrementing circuit breaker failure count");
+        if (this.state === "CLOSED" && this.failures >= this.failureThreshold) {
+          this.state = "OPEN";
+          logger.error("Circuit breaker tripped to OPEN state");
+        } else if (this.state === "HALF-OPEN") {
+          this.state = "OPEN";
+          logger.error("Circuit breaker tripped back to OPEN state from HALF-OPEN");
+        }
       }
       throw err;
     }
@@ -514,6 +518,11 @@ function checkInMemoryRateLimit(key: string, limitRpm: number): boolean {
   const current = memoryRateLimits.get(key);
   if (!current || current.window !== minuteWindow) {
     memoryRateLimits.set(key, { window: minuteWindow, count: 1 });
+    if (memoryRateLimits.size > 10000) {
+      for (const [k, v] of memoryRateLimits.entries()) {
+        if (v.window !== minuteWindow) memoryRateLimits.delete(k);
+      }
+    }
     return true;
   }
   
@@ -991,7 +1000,7 @@ server.post("/v1/chat/completions", async (request, reply) => {
 
         const decoder = new TextDecoder();
         let buffer = "";
-        let prevText = "";
+        let prevCleanedText = "";
 
         while (true) {
           const { done, value } = await reader.read();
@@ -1002,36 +1011,31 @@ server.post("/v1/chat/completions", async (request, reply) => {
           buffer = lines.pop() || "";
 
           for (const line of lines) {
-            if (!line.includes('"wrb.fr"') || line.length < 200) {
-              continue;
-            }
+            if (!line.includes('"wrb.fr"') || line.length < 200) continue;
             try {
-              const arr = JSON.parse(line);
-              const innerStr = arr[0][2];
+              const innerStr = JSON.parse(line)[0][2];
               if (!innerStr || innerStr.length < 50) continue;
               const inner2 = JSON.parse(innerStr);
               if (Array.isArray(inner2) && inner2[4]) {
+                let fullText = "";
                 for (const part of inner2[4]) {
                   if (Array.isArray(part) && part[1] && Array.isArray(part[1])) {
-                    for (const t of part[1]) {
-                      if (typeof t === "string" && t.length > prevText.length) {
-                        let delta = t.substring(prevText.length);
-                        delta = cleanGeminiText(delta);
-                        if (delta) {
-                           responseText += delta;
-                           const chunk = {
-                             id: cid,
-                             object: "chat.completion.chunk",
-                             created: Math.floor(Date.now() / 1000),
-                             model: modelName,
-                             choices: [{ index: 0, delta: { content: delta }, finish_reason: null }]
-                           };
-                           reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
-                        }
-                        prevText = t;
-                      }
-                    }
+                    fullText += part[1].filter((t: any) => typeof t === "string").join("");
                   }
+                }
+                const cleanedText = cleanGeminiText(fullText);
+                if (cleanedText.length > prevCleanedText.length) {
+                  const delta = cleanedText.substring(prevCleanedText.length);
+                  responseText += delta;
+                  const chunk = {
+                    id: cid,
+                    object: "chat.completion.chunk",
+                    created: Math.floor(Date.now() / 1000),
+                    model: modelName,
+                    choices: [{ index: 0, delta: { content: delta }, finish_reason: null }]
+                  };
+                  reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
+                  prevCleanedText = cleanedText;
                 }
               }
             } catch {}
