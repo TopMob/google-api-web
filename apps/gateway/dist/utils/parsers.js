@@ -32,8 +32,11 @@ export function extractResponseText(raw) {
     }
     return cleanGeminiText(finalResult).trim();
 }
-export function messagesToPrompt(messages, tools) {
+export function messagesToPrompt(messages, tools, responseFormat) {
     const parts = [];
+    if (responseFormat?.type === "json_object") {
+        parts.push("[System instruction]: You MUST respond with a valid JSON object. Do not include markdown code block formatting.");
+    }
     if (tools && tools.length > 0) {
         const toolDefs = tools.map((tool) => {
             const fn = tool.type === "function" ? tool.function : tool;
@@ -66,7 +69,14 @@ export function messagesToPrompt(messages, tools) {
             if (msg.tool_calls) {
                 const tcStrs = msg.tool_calls.map((tc) => {
                     const fn = tc.function || {};
-                    return `\`\`\`tool_call\n${JSON.stringify({ name: fn.name, arguments: fn.arguments })}\n\`\`\``;
+                    let argsObj = fn.arguments || {};
+                    if (typeof argsObj === "string") {
+                        try {
+                            argsObj = JSON.parse(argsObj);
+                        }
+                        catch { }
+                    }
+                    return `\`\`\`tool_call\n${JSON.stringify({ name: fn.name, arguments: argsObj })}\n\`\`\``;
                 });
                 parts.push(`[Assistant]: ${content || ""}\n` + tcStrs.join("\n"));
             }
@@ -75,7 +85,9 @@ export function messagesToPrompt(messages, tools) {
             }
         }
         else if (role === "tool") {
-            parts.push(`[Tool result for ${msg.name || ""}]: ${content}`);
+            const toolName = msg.name || msg.tool_call_id || "";
+            const toolResult = typeof content === "object" ? JSON.stringify(content) : content;
+            parts.push(`[Tool result for ${toolName}]: ${toolResult}`);
         }
         else {
             parts.push(content ? String(content) : "");
@@ -85,18 +97,53 @@ export function messagesToPrompt(messages, tools) {
 }
 export function parseToolCalls(text) {
     const toolCalls = [];
-    const regex = /```tool_call\s*\n([\s\S]*?)\n```/g;
+    const regex = /```tool_call\s*([\s\S]*?)\s*```/g;
     for (const match of text.matchAll(regex)) {
         try {
             const data = JSON.parse(match[1].trim());
+            const args = data.arguments || {};
+            const argumentsStr = typeof args === "string" ? args : JSON.stringify(args);
             toolCalls.push({
                 id: `call_${Math.random().toString(36).substring(2, 10)}`,
                 type: "function",
-                function: { name: data.name, arguments: JSON.stringify(data.arguments || {}) }
+                function: { name: data.name, arguments: argumentsStr }
             });
         }
         catch { }
     }
     const cleanText = text.replace(regex, "").trim();
     return { cleanText, toolCalls: toolCalls.length > 0 ? toolCalls : null };
+}
+export function cleanJsonResponse(text) {
+    let clean = text.trim();
+    clean = clean.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+    clean = clean.replace(/```json/gi, "").replace(/```/g, "").trim();
+    const firstBrace = clean.indexOf("{");
+    const firstBracket = clean.indexOf("[");
+    let startIdx = -1;
+    if (firstBrace !== -1 && firstBracket !== -1) {
+        startIdx = Math.min(firstBrace, firstBracket);
+    }
+    else if (firstBrace !== -1) {
+        startIdx = firstBrace;
+    }
+    else if (firstBracket !== -1) {
+        startIdx = firstBracket;
+    }
+    const lastBrace = clean.lastIndexOf("}");
+    const lastBracket = clean.lastIndexOf("]");
+    let endIdx = -1;
+    if (lastBrace !== -1 && lastBracket !== -1) {
+        endIdx = Math.max(lastBrace, lastBracket);
+    }
+    else if (lastBrace !== -1) {
+        endIdx = lastBrace;
+    }
+    else if (lastBracket !== -1) {
+        endIdx = lastBracket;
+    }
+    if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+        clean = clean.substring(startIdx, endIdx + 1);
+    }
+    return clean.trim();
 }

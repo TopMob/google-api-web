@@ -10,7 +10,10 @@ export const chatCompletionSchema = z.object({
     stream: z.boolean().optional().default(false),
     tools: z.array(z.any()).optional(),
     temperature: z.number().optional(),
-    max_tokens: z.number().optional()
+    max_tokens: z.number().optional(),
+    response_format: z.object({
+        type: z.enum(["text", "json_object"])
+    }).optional()
 });
 export const responsesApiSchema = z.object({
     model: z.string().optional().default("gemini-3.5-flash"),

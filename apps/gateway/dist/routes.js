@@ -3,7 +3,7 @@ import crypto from "crypto";
 import { MODELS } from "@gateway/shared";
 import { verifyApiKey, logUsage } from "./services/auth.js";
 import { buildGeminiRequest, geminiStreamGenerate } from "./services/gemini.js";
-import { extractResponseText, parseToolCalls, messagesToPrompt, cleanGeminiText } from "./utils/parsers.js";
+import { extractResponseText, parseToolCalls, messagesToPrompt, cleanGeminiText, cleanJsonResponse } from "./utils/parsers.js";
 import { geminiCircuitBreaker } from "./utils/circuitBreaker.js";
 import { normalizeError } from "./utils/errors.js";
 import { isCookieValidCached, loadCookie } from "./utils/cookie.js";
@@ -74,7 +74,7 @@ export function registerRoutes(server) {
                 }
             });
         }
-        const prompt = messagesToPrompt(req.messages, req.tools);
+        const prompt = messagesToPrompt(req.messages, req.tools, req.response_format);
         if (!prompt.trim()) {
             return reply.status(400).send({
                 error: {
@@ -267,7 +267,11 @@ export function registerRoutes(server) {
             const raw = await geminiCircuitBreaker.execute(() => geminiStreamGenerate(prompt, cfg.mode, cfg.think, customCookie));
             const text = extractResponseText(raw);
             const { cleanText, toolCalls } = parseToolCalls(text);
-            const msg = { role: "assistant", content: cleanText || null };
+            let contentText = cleanText;
+            if (req.response_format?.type === "json_object" && contentText) {
+                contentText = cleanJsonResponse(contentText);
+            }
+            const msg = { role: "assistant", content: contentText || null };
             if (toolCalls) {
                 msg.tool_calls = toolCalls;
             }

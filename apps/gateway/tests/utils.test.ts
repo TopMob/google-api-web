@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { cleanGeminiText, extractResponseText, parseToolCalls, messagesToPrompt } from "../src/utils/parsers.js";
+import { cleanGeminiText, extractResponseText, parseToolCalls, messagesToPrompt, cleanJsonResponse } from "../src/utils/parsers.js";
 import { parseAndValidateCookie } from "../src/utils/cookie.js";
 
 describe("Parser Utilities", () => {
@@ -34,6 +34,11 @@ describe("Parser Utilities", () => {
     expect(prompt).toContain("[System instruction]: You are helpful");
     expect(prompt).toContain("Hello");
     expect(prompt).toContain("[Assistant]: Hi there!");
+  });
+
+  it("should clean json responses from markdown and think blocks", () => {
+    const raw = "<think>reasoning</think>\n```json\n{\"answer\": \"ok\"}\n```";
+    expect(cleanJsonResponse(raw)).toBe("{\"answer\": \"ok\"}");
   });
 });
 
