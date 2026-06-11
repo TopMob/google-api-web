@@ -117,22 +117,25 @@ export function cleanJsonResponse(text: string): string {
   const firstBrace = clean.indexOf("{");
   const firstBracket = clean.indexOf("[");
   let startIdx = -1;
+  let isObject = false;
   if (firstBrace !== -1 && firstBracket !== -1) {
-    startIdx = Math.min(firstBrace, firstBracket);
+    if (firstBrace < firstBracket) {
+      startIdx = firstBrace;
+      isObject = true;
+    } else {
+      startIdx = firstBracket;
+      isObject = false;
+    }
   } else if (firstBrace !== -1) {
     startIdx = firstBrace;
+    isObject = true;
   } else if (firstBracket !== -1) {
     startIdx = firstBracket;
+    isObject = false;
   }
-  const lastBrace = clean.lastIndexOf("}");
-  const lastBracket = clean.lastIndexOf("]");
   let endIdx = -1;
-  if (lastBrace !== -1 && lastBracket !== -1) {
-    endIdx = Math.max(lastBrace, lastBracket);
-  } else if (lastBrace !== -1) {
-    endIdx = lastBrace;
-  } else if (lastBracket !== -1) {
-    endIdx = lastBracket;
+  if (startIdx !== -1) {
+    endIdx = isObject ? clean.lastIndexOf("}") : clean.lastIndexOf("]");
   }
   if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
     clean = clean.substring(startIdx, endIdx + 1);
