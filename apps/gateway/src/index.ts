@@ -3,7 +3,7 @@ import { PORT, HOST } from "./config.js";
 import { logger } from "./logger.js";
 import { registerRoutes } from "./routes.js";
 
-const server = fastify({ logger });
+const server = fastify({ logger: logger as any });
 
 server.register(import("@fastify/cors"), {
   origin: "*"

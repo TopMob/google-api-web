@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
 import crypto from "crypto";
+import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { MODELS } from "@gateway/shared";
 import { verifyApiKey, logUsage } from "./services/auth.js";
 import { buildGeminiRequest, geminiStreamGenerate } from "./services/gemini.js";
@@ -10,8 +11,8 @@ import { isCookieValidCached, loadCookie } from "./utils/cookie.js";
 import { chatCompletionSchema, responsesApiSchema } from "./utils/schemas.js";
 import { logger } from "./logger.js";
 
-export function registerRoutes(server: any) {
-  server.get("/health", async (request: any, reply: any) => {
+export function registerRoutes(server: FastifyInstance) {
+  server.get("/health", async (request: FastifyRequest, reply: FastifyReply) => {
     const loaded = loadCookie();
     if (loaded.cookieStr) {
       const isValid = await isCookieValidCached(loaded.cookieStr, loaded.sapisid);
@@ -42,7 +43,7 @@ export function registerRoutes(server: any) {
     };
   });
 
-  server.post("/v1/chat/completions", async (request: any, reply: any) => {
+  server.post("/v1/chat/completions", async (request: FastifyRequest, reply: FastifyReply) => {
     const parseResult = chatCompletionSchema.safeParse(request.body);
     if (!parseResult.success) {
       return reply.status(400).send({
@@ -363,7 +364,7 @@ export function registerRoutes(server: any) {
     }
   });
 
-  server.post("/v1/responses", async (request: any, reply: any) => {
+  server.post("/v1/responses", async (request: FastifyRequest, reply: FastifyReply) => {
     const parseResult = responsesApiSchema.safeParse(request.body);
     if (!parseResult.success) {
       return reply.status(400).send({
