@@ -6,7 +6,7 @@ const memoryRateLimits = new Map<string, { window: number; count: number }>();
 export function checkInMemoryRateLimit(key: string, limitRpm: number): boolean {
   const now = Math.floor(Date.now() / 1000);
   const minuteWindow = Math.floor(now / 60);
-  
+
   const current = memoryRateLimits.get(key);
   if (!current || current.window !== minuteWindow) {
     memoryRateLimits.set(key, { window: minuteWindow, count: 1 });
@@ -17,7 +17,7 @@ export function checkInMemoryRateLimit(key: string, limitRpm: number): boolean {
     }
     return true;
   }
-  
+
   current.count += 1;
   return current.count <= limitRpm;
 }

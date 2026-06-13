@@ -1,15 +1,15 @@
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
-import { config, AUTH_USER } from "../config.js";
+import { config, AUTH_USER, GEMINI_COOKIE, COOKIE_FILE } from "../config.js";
 import { logger } from "../logger.js";
 
 let cachedCookie: { cookieStr: string; sapisid: string | null; timestamp: number } | null = null;
 const COOKIE_FILE_TTL_MS = 60 * 1000;
 
 export function loadCookie(): { cookieStr: string; sapisid: string | null } {
-  if (process.env.GEMINI_COOKIE) {
-    const cookieStr = process.env.GEMINI_COOKIE.trim();
+  if (GEMINI_COOKIE) {
+    const cookieStr = GEMINI_COOKIE.trim();
     const match = cookieStr.match(/SAPISID=([^;]+)/);
     return { cookieStr, sapisid: match ? match[1] : null };
   }
@@ -20,11 +20,8 @@ export function loadCookie(): { cookieStr: string; sapisid: string | null } {
   }
 
   const paths: string[] = [];
-  if (config.cookie_file) {
-    paths.push(
-      path.resolve(process.cwd(), config.cookie_file),
-      path.resolve(process.cwd(), "apps/gateway", config.cookie_file)
-    );
+  if (COOKIE_FILE) {
+    paths.push(path.resolve(process.cwd(), COOKIE_FILE), path.resolve(process.cwd(), "apps/gateway", COOKIE_FILE));
   }
   paths.push(
     path.resolve(process.cwd(), "cookies/cookie.txt"),
@@ -115,12 +112,15 @@ export function parseAndValidateCookie(key: string): { valid: boolean; data?: Ge
 }
 
 export async function testGeminiConnection(cookieStr: string, sapisid: string | null): Promise<boolean> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
   try {
     const prefix = AUTH_USER ? `/u/${AUTH_USER}` : "/u/0";
     const url = `https://gemini.google.com${prefix}/app`;
     const headers: Record<string, string> = {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      "Cookie": cookieStr
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      Cookie: cookieStr
     };
     if (sapisid) {
       headers["Authorization"] = makeSapisidHash(sapisid);
@@ -128,13 +128,16 @@ export async function testGeminiConnection(cookieStr: string, sapisid: string | 
     const res = await fetch(url, {
       method: "GET",
       headers,
-      keepalive: true
+      keepalive: true,
+      signal: controller.signal
     });
-    
+
+    clearTimeout(timeoutId);
+
     if (res.status >= 400) {
       return false;
     }
-    
+
     if (res.url.includes("accounts.google.com") || res.url.includes("ServiceLogin")) {
       return false;
     }
@@ -142,6 +145,7 @@ export async function testGeminiConnection(cookieStr: string, sapisid: string | 
     const text = await res.text();
     return text.includes("SNlM0e");
   } catch (e) {
+    clearTimeout(timeoutId);
     logger.error({ err: e }, "Failed to test Gemini connection");
     return false;
   }

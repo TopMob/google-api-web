@@ -33,12 +33,19 @@ export class CircuitBreaker {
       return result;
     } catch (err: any) {
       const msg = err.message || "";
-      const isClientError = msg.includes("returned 400") || msg.includes("returned 401") || msg.includes("returned 403") || msg.includes("returned 404");
-      
+      const isClientError =
+        msg.includes("returned 400") ||
+        msg.includes("returned 401") ||
+        msg.includes("returned 403") ||
+        msg.includes("returned 404");
+
       if (!isClientError) {
         this.failures++;
         this.lastFailureTime = Date.now();
-        logger.warn({ failures: this.failures, state: this.state }, "Upstream call failed, incrementing circuit breaker failure count");
+        logger.warn(
+          { failures: this.failures, state: this.state },
+          "Upstream call failed, incrementing circuit breaker failure count"
+        );
         if (this.state === "CLOSED" && this.failures >= this.failureThreshold) {
           this.state = "OPEN";
           logger.error("Circuit breaker tripped to OPEN state");

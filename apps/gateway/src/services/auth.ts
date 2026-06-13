@@ -1,18 +1,21 @@
+import { FastifyRequest } from "fastify";
 import crypto from "crypto";
 import { supabase } from "../db.js";
 import { parseAndValidateCookie, isCookieValidCached } from "../utils/cookie.js";
 import { checkRateLimit } from "../utils/rateLimit.js";
-import { config } from "../config.js";
+import { config, DEFAULT_RATE_LIMIT_RPM, ADMIN_API_KEY, API_KEYS } from "../config.js";
 import { logger } from "../logger.js";
 
-export async function verifyApiKey(request: any, model: string): Promise<{
+export interface AuthResult {
   valid: boolean;
   projectId?: string;
   apiKeyId?: string;
   customCookie?: string;
   error?: string;
   statusCode?: number;
-}> {
+}
+
+export async function verifyApiKey(request: FastifyRequest, model: string): Promise<AuthResult> {
   let key = "";
   const authHeader = request.headers.authorization;
   const xApiKeyHeader = request.headers["x-api-key"];
@@ -30,8 +33,9 @@ export async function verifyApiKey(request: any, model: string): Promise<{
   let rateLimitKey = "";
   let rateLimitRpm = 0;
 
-  const isCookieStr = key.includes("SID=") || key.includes("__Secure-1PSID") || (key.includes(";") && key.includes("="));
-  
+  const isCookieStr =
+    key.includes("SID=") || key.includes("__Secure-1PSID") || (key.includes(";") && key.includes("="));
+
   if (key && isCookieStr) {
     const parseResult = parseAndValidateCookie(key);
     if (!parseResult.valid) {
@@ -45,7 +49,7 @@ export async function verifyApiKey(request: any, model: string): Promise<{
     }
 
     rateLimitKey = `cookie:${crypto.createHash("sha256").update(cookieStr).digest("hex")}`;
-    rateLimitRpm = parseInt(process.env.DEFAULT_RATE_LIMIT_RPM || "15", 10);
+    rateLimitRpm = DEFAULT_RATE_LIMIT_RPM;
 
     if (rateLimitRpm > 0) {
       const isRateOk = await checkRateLimit(rateLimitKey, rateLimitRpm);
@@ -62,7 +66,7 @@ export async function verifyApiKey(request: any, model: string): Promise<{
     };
   }
 
-  const configApiKeys = config.api_keys;
+  const configApiKeys = API_KEYS;
   if (configApiKeys && Array.isArray(configApiKeys)) {
     if (configApiKeys.length === 0) {
       return {
@@ -78,7 +82,7 @@ export async function verifyApiKey(request: any, model: string): Promise<{
 
     if (configApiKeys.includes(key)) {
       rateLimitKey = `static:${key}`;
-      rateLimitRpm = parseInt(process.env.DEFAULT_RATE_LIMIT_RPM || "15", 10);
+      rateLimitRpm = DEFAULT_RATE_LIMIT_RPM;
 
       if (rateLimitRpm > 0) {
         const isRateOk = await checkRateLimit(rateLimitKey, rateLimitRpm);
@@ -101,10 +105,10 @@ export async function verifyApiKey(request: any, model: string): Promise<{
     return { valid: false, error: "Missing API key / Authorization header", statusCode: 401 };
   }
 
-  const adminKey = process.env.ADMIN_API_KEY || "sk-personal-gw";
+  const adminKey = ADMIN_API_KEY;
   if (key === adminKey || key === "sk-personal-gw") {
     rateLimitKey = `static:${key}`;
-    rateLimitRpm = parseInt(process.env.DEFAULT_RATE_LIMIT_RPM || "15", 10);
+    rateLimitRpm = DEFAULT_RATE_LIMIT_RPM;
 
     if (rateLimitRpm > 0) {
       const isRateOk = await checkRateLimit(rateLimitKey, rateLimitRpm);
@@ -126,7 +130,9 @@ export async function verifyApiKey(request: any, model: string): Promise<{
 
   const { data, error } = await supabase
     .from("api_keys")
-    .select("id, project_id, active, allowed_models, daily_requests_limit, daily_tokens_limit, rate_limit_rpm, expires_at")
+    .select(
+      "id, project_id, active, allowed_models, daily_requests_limit, daily_tokens_limit, rate_limit_rpm, expires_at"
+    )
     .eq("key", key)
     .single();
 
@@ -150,7 +156,10 @@ export async function verifyApiKey(request: any, model: string): Promise<{
     }
   }
 
-  if ((data.daily_requests_limit && data.daily_requests_limit > 0) || (data.daily_tokens_limit && data.daily_tokens_limit > 0)) {
+  if (
+    (data.daily_requests_limit && data.daily_requests_limit > 0) ||
+    (data.daily_tokens_limit && data.daily_tokens_limit > 0)
+  ) {
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
 
@@ -164,7 +173,9 @@ export async function verifyApiKey(request: any, model: string): Promise<{
       logger.error({ err: usageErr }, "Failed to query usage_logs for limit verification");
     } else {
       const requestsToday = usageData ? usageData.length : 0;
-      const tokensToday = usageData ? usageData.reduce((sum: number, row: any) => sum + (row.total_tokens || 0), 0) : 0;
+      const tokensToday = usageData
+        ? usageData.reduce((sum: number, row: { total_tokens?: number | null }) => sum + (row.total_tokens || 0), 0)
+        : 0;
 
       if (data.daily_requests_limit && requestsToday >= data.daily_requests_limit) {
         return { valid: false, error: "Daily request limit exceeded", statusCode: 429 };

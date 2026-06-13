@@ -1,6 +1,6 @@
 export function normalizeError(err: any): { status: number; body: any } {
   const msg = err instanceof Error ? err.message : String(err);
-  
+
   if (msg.includes("Circuit breaker is OPEN")) {
     return {
       status: 503,
@@ -34,7 +34,8 @@ export function normalizeError(err: any): { status: number; body: any } {
       status: 400,
       body: {
         error: {
-          message: "Bad request to Gemini. Possible causes: invalid payload format, invalid cookie, or Google Gemini internal changes.",
+          message:
+            "Bad request to Gemini. Possible causes: invalid payload format, invalid cookie, or Google Gemini internal changes.",
           type: "invalid_request_error",
           param: null,
           code: "bad_request"
@@ -71,7 +72,11 @@ export function normalizeError(err: any): { status: number; body: any } {
     };
   }
 
-  if (msg.includes("Upstream returned 500") || msg.includes("Upstream returned 502") || msg.includes("Upstream returned 503")) {
+  if (
+    msg.includes("Upstream returned 500") ||
+    msg.includes("Upstream returned 502") ||
+    msg.includes("Upstream returned 503")
+  ) {
     return {
       status: 502,
       body: {
