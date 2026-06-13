@@ -1,6 +1,6 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import crypto from "crypto";
-import { MODELS } from "@gateway/shared";
+import { MODELS } from "../utils/models.js";
 import { verifyApiKey, logUsage } from "../services/auth.js";
 import { geminiStreamGenerate } from "../services/gemini.js";
 import { extractResponseText, parseToolCalls, messagesToPrompt } from "../utils/parsers.js";

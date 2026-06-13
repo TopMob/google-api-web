@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { MODELS } from "@gateway/shared";
+import { MODELS } from "./utils/models.js";
 import { isCookieValidCached, loadCookie } from "./utils/cookie.js";
 import { chatCompletionController } from "./controllers/chatController.js";
 import { responsesApiController } from "./controllers/responsesController.js";

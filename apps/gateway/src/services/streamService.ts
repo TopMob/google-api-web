@@ -8,7 +8,7 @@ import { normalizeError } from "../utils/errors.js";
 import { logger } from "../logger.js";
 import { fetchWithRetry } from "../utils/fetchWithRetry.js";
 import { countTokens } from "../utils/tokens.js";
-import { ModelConfig } from "@gateway/shared";
+import { ModelConfig } from "../utils/models.js";
 
 export async function handleChatStream(
   prompt: string,

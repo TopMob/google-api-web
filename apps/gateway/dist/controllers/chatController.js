@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
-import { MODELS } from "@gateway/shared";
+import { MODELS } from "../utils/models.js";
 import { verifyApiKey, logUsage } from "../services/auth.js";
 import { geminiStreamGenerate } from "../services/gemini.js";
 import { extractResponseText, parseToolCalls, messagesToPrompt, cleanJsonResponse } from "../utils/parsers.js";
