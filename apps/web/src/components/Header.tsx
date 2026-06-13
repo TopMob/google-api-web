@@ -23,7 +23,7 @@ export default function Header({
   setSelectedModel,
   models,
   fetchModels,
-  stats,
+  stats
 }: HeaderProps) {
   const [copiedModel, setCopiedModel] = useState(false);
 
@@ -114,15 +114,11 @@ export default function Header({
           { label: "Requests", value: stats.requests },
           { label: "Tokens", value: stats.estimatedTokens },
           { label: "Success Rate", value: `${stats.successRate}%` },
-          { label: "Session Time", value: stats.activeTime },
+          { label: "Session Time", value: stats.activeTime }
         ].map((stat, idx) => (
           <div key={idx} className="text-right border-l border-zinc-900 pl-5 first:border-0 first:pl-0">
-            <div className="text-[8px] text-zinc-500 uppercase font-mono tracking-wider font-bold">
-              {stat.label}
-            </div>
-            <div className="text-xs font-bold text-zinc-300 font-mono tracking-tight">
-              {stat.value}
-            </div>
+            <div className="text-[8px] text-zinc-500 uppercase font-mono tracking-wider font-bold">{stat.label}</div>
+            <div className="text-xs font-bold text-zinc-300 font-mono tracking-tight">{stat.value}</div>
           </div>
         ))}
       </div>

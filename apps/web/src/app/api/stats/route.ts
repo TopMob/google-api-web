@@ -16,7 +16,7 @@ export async function GET() {
 
     const totalRequests = logs.length;
     const totalTokens = logs.reduce((acc, curr) => acc + (curr.total_tokens || 0), 0);
-    const successful = logs.filter(l => l.status_code >= 200 && l.status_code < 300).length;
+    const successful = logs.filter((l) => l.status_code >= 200 && l.status_code < 300).length;
     const successRate = totalRequests > 0 ? Math.round((successful / totalRequests) * 100) : 100;
 
     return NextResponse.json({

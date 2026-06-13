@@ -25,7 +25,9 @@ interface FaqTabProps {
   isTestingCookie: boolean;
   handleTestCookie: () => Promise<void>;
   activeProvider: "opencode" | "vscode" | "codex" | "codex_cli" | "openclaw" | "cursor" | "jetbrains" | "zed";
-  setActiveProvider: (prov: "opencode" | "vscode" | "codex" | "codex_cli" | "openclaw" | "cursor" | "jetbrains" | "zed") => void;
+  setActiveProvider: (
+    prov: "opencode" | "vscode" | "codex" | "codex_cli" | "openclaw" | "cursor" | "jetbrains" | "zed"
+  ) => void;
   activePlatform: "windows" | "macos" | "linux";
   setActivePlatform: (plat: "windows" | "macos" | "linux") => void;
   copiedId: string | null;
@@ -51,21 +53,24 @@ export default function FaqTab({
   selectedModel,
   activeKey,
   gatewayUrl,
-  models,
+  models
 }: FaqTabProps) {
   // Compute standard API base URL
   const apiBaseUrl = gatewayUrl.endsWith("/v1") ? gatewayUrl : `${gatewayUrl}/v1`;
 
   // Render models object for OpenCode configurations
   const getOpenCodeConfig = () => {
-    const modelsObj = models.reduce((acc, m) => {
-      const displayName = m
-        .split("-")
-        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(" ");
-      acc[m] = { name: `${displayName} (Web2API)` };
-      return acc;
-    }, {} as Record<string, { name: string }>);
+    const modelsObj = models.reduce(
+      (acc, m) => {
+        const displayName = m
+          .split("-")
+          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(" ");
+        acc[m] = { name: `${displayName} (Web2API)` };
+        return acc;
+      },
+      {} as Record<string, { name: string }>
+    );
 
     return JSON.stringify(
       {
@@ -152,7 +157,8 @@ models = [${modelsList}]`;
               Gateway Configuration & Integration Guide
             </h2>
             <p className="text-[11px] text-zinc-400 leading-relaxed max-w-2xl font-mono">
-              Learn how to connect terminal coding assistants, web UIs, and IDE extensions to your running Gemini Web2API gateway. You can use your active API key and base URL directly inside your configurations.
+              Learn how to connect terminal coding assistants, web UIs, and IDE extensions to your running Gemini
+              Web2API gateway. You can use your active API key and base URL directly inside your configurations.
             </p>
           </div>
         </div>
@@ -162,7 +168,16 @@ models = [${modelsList}]`;
       <div className="flex items-start gap-3 p-4 bg-[#0e0a05] border border-amber-500/10 rounded font-mono select-none">
         <Lock size={14} className="text-amber-500 shrink-0 mt-0.5" />
         <div className="text-[10px] text-zinc-400 leading-relaxed">
-          <strong className="text-amber-400 uppercase tracking-wider">[Connection configuration]</strong> Currently active API key: <code className="text-cyan-400 font-bold bg-[#0e0f13] border border-zinc-800 px-1.5 py-0.5 rounded select-all">{activeKey}</code>, Endpoint address: <code className="text-cyan-400 font-bold bg-[#0e0f13] border border-zinc-800 px-1.5 py-0.5 rounded select-all">{apiBaseUrl}</code>.
+          <strong className="text-amber-400 uppercase tracking-wider">[Connection configuration]</strong> Currently
+          active API key:{" "}
+          <code className="text-cyan-400 font-bold bg-[#0e0f13] border border-zinc-800 px-1.5 py-0.5 rounded select-all">
+            {activeKey}
+          </code>
+          , Endpoint address:{" "}
+          <code className="text-cyan-400 font-bold bg-[#0e0f13] border border-zinc-800 px-1.5 py-0.5 rounded select-all">
+            {apiBaseUrl}
+          </code>
+          .
         </div>
       </div>
 
@@ -170,9 +185,7 @@ models = [${modelsList}]`;
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Left Side: Table of Contents */}
         <div className="lg:col-span-1 space-y-2 select-none">
-          <div className="text-[9px] font-mono tracking-widest text-zinc-500 uppercase px-2">
-            Index
-          </div>
+          <div className="text-[9px] font-mono tracking-widest text-zinc-500 uppercase px-2">Index</div>
           <nav className="space-y-0.5">
             {[
               { id: "step-connect-opencode", label: "1. Connecting OpenCode" },
@@ -180,7 +193,7 @@ models = [${modelsList}]`;
               { id: "step-available-models", label: "3. Supported Models List" },
               { id: "step-cookie-auth", label: "4. Cookie Auth Setup (Pro)" },
               { id: "step-diagnostic", label: "5. Cookie Validator" },
-              { id: "step-diagnostics", label: "6. Diagnostics & Errors" },
+              { id: "step-diagnostics", label: "6. Diagnostics & Errors" }
             ].map((item) => (
               <a
                 key={item.id}
@@ -216,13 +229,9 @@ models = [${modelsList}]`;
                 <div className="font-bold text-zinc-200 uppercase text-[10px] tracking-wide">
                   Method A: Connect Command (TUI / CLI)
                 </div>
-                <p className="text-zinc-400">
-                  1. Launch OpenCode connection guide by typing the connect command:
-                </p>
+                <p className="text-zinc-400">1. Launch OpenCode connection guide by typing the connect command:</p>
                 <div className="relative bg-[#0e0f13] border border-zinc-850 rounded p-3 text-[10px] break-all select-all flex justify-between items-center gap-4">
-                  <span className="text-zinc-300">
-                    npx opencode-ai "/connect"
-                  </span>
+                  <span className="text-zinc-300">npx opencode-ai "/connect"</span>
                   <button
                     type="button"
                     onClick={() => copyGuideText('npx opencode-ai "/connect"', "opencode-cmd")}
@@ -237,10 +246,23 @@ models = [${modelsList}]`;
                   </button>
                 </div>
                 <p className="text-zinc-400 leading-relaxed pl-1.5 border-l border-zinc-800">
-                  2. Scroll down in the TUI select list to <strong className="text-zinc-200">Other / OpenAI-compatible</strong>.<br />
-                  3. Enter Provider ID: <code className="text-cyan-400 bg-zinc-900 px-1 py-0.5 rounded border border-zinc-850">gemini-web2api</code>.<br />
-                  4. Enter Base URL: <code className="text-cyan-400 bg-zinc-900 px-1 py-0.5 rounded border border-zinc-850">{apiBaseUrl}</code>.<br />
-                  5. Enter API Key: <code className="text-cyan-400 bg-zinc-900 px-1 py-0.5 rounded border border-zinc-850">{activeKey}</code>.
+                  2. Scroll down in the TUI select list to{" "}
+                  <strong className="text-zinc-200">Other / OpenAI-compatible</strong>.<br />
+                  3. Enter Provider ID:{" "}
+                  <code className="text-cyan-400 bg-zinc-900 px-1 py-0.5 rounded border border-zinc-850">
+                    gemini-web2api
+                  </code>
+                  .<br />
+                  4. Enter Base URL:{" "}
+                  <code className="text-cyan-400 bg-zinc-900 px-1 py-0.5 rounded border border-zinc-850">
+                    {apiBaseUrl}
+                  </code>
+                  .<br />
+                  5. Enter API Key:{" "}
+                  <code className="text-cyan-400 bg-zinc-900 px-1 py-0.5 rounded border border-zinc-850">
+                    {activeKey}
+                  </code>
+                  .
                 </p>
               </div>
 
@@ -257,9 +279,7 @@ models = [${modelsList}]`;
                   </code>
                 </p>
                 <div className="relative bg-[#0e0f13] border border-zinc-850 rounded p-4 text-[9px] block">
-                  <pre className="overflow-x-auto select-all leading-normal text-zinc-300">
-                    {getOpenCodeConfig()}
-                  </pre>
+                  <pre className="overflow-x-auto select-all leading-normal text-zinc-300">{getOpenCodeConfig()}</pre>
                   <button
                     type="button"
                     onClick={() => copyGuideText(getOpenCodeConfig(), "opencode-json-config")}
@@ -326,14 +346,13 @@ models = [${modelsList}]`;
 
             <div className="space-y-4 text-[11px] text-zinc-300 font-mono">
               <p className="leading-relaxed text-zinc-400">
-                You can configure custom OpenAI-compatible settings in standard coding tools. Choose your app and OS below:
+                You can configure custom OpenAI-compatible settings in standard coding tools. Choose your app and OS
+                below:
               </p>
 
               {/* Provider Selection */}
               <div className="space-y-1.5 select-none">
-                <div className="text-[9px] uppercase font-bold tracking-wider text-zinc-500">
-                  Select Tool
-                </div>
+                <div className="text-[9px] uppercase font-bold tracking-wider text-zinc-500">Select Tool</div>
                 <div className="flex flex-wrap gap-1 p-1 bg-[#0e0f13] border border-zinc-850 rounded">
                   {[
                     { id: "vscode", name: "VS Code (Continue)" },
@@ -341,7 +360,7 @@ models = [${modelsList}]`;
                     { id: "zed", name: "Zed" },
                     { id: "jetbrains", name: "JetBrains" },
                     { id: "openclaw", name: "OpenClaw / Libre" },
-                    { id: "codex_cli", name: "Codex / Shell" },
+                    { id: "codex_cli", name: "Codex / Shell" }
                   ].map((prov) => (
                     <button
                       key={prov.id}
@@ -361,14 +380,12 @@ models = [${modelsList}]`;
 
               {/* Platform Selectors */}
               <div className="space-y-1.5 select-none">
-                <div className="text-[9px] uppercase font-bold tracking-wider text-zinc-500">
-                  Select OS
-                </div>
+                <div className="text-[9px] uppercase font-bold tracking-wider text-zinc-500">Select OS</div>
                 <div className="flex gap-1 p-1 bg-[#0e0f13] border border-zinc-850 rounded max-w-xs">
                   {[
                     { id: "windows", name: "Windows" },
                     { id: "macos", name: "macOS" },
-                    { id: "linux", name: "Linux" },
+                    { id: "linux", name: "Linux" }
                   ].map((plat) => (
                     <button
                       key={plat.id}
@@ -399,12 +416,11 @@ models = [${modelsList}]`;
                     </code>
                   </p>
                   <p className="text-zinc-400">
-                    Add the following objects inside the <code className="text-zinc-350 bg-zinc-900 px-1 rounded">"models"</code> array:
+                    Add the following objects inside the{" "}
+                    <code className="text-zinc-350 bg-zinc-900 px-1 rounded">"models"</code> array:
                   </p>
                   <div className="relative bg-[#0e0f13] border border-zinc-850 rounded p-4 text-[9px] block">
-                    <pre className="overflow-x-auto select-all leading-normal text-zinc-300">
-                      {getContinueConfig()}
-                    </pre>
+                    <pre className="overflow-x-auto select-all leading-normal text-zinc-300">{getContinueConfig()}</pre>
                     <button
                       type="button"
                       onClick={() => copyGuideText(getContinueConfig(), "vscode-continue-config")}
@@ -425,11 +441,19 @@ models = [${modelsList}]`;
                 <div className="space-y-3 pt-2">
                   <h4 className="font-bold text-zinc-200 text-xs">Cursor OpenAI-Compatible API Configuration</h4>
                   <p className="text-zinc-400 leading-relaxed">
-                    1. Open Cursor and navigate to <strong className="text-zinc-200">Settings ➔ Models ➔ OpenAI-Compatible</strong>.<br />
-                    2. Enable the section and enter the credentials:<br />
-                    &nbsp;&nbsp;&bull; <strong className="text-zinc-300">Base URL:</strong> <code className="text-cyan-400">{apiBaseUrl}</code><br />
-                    &nbsp;&nbsp;&bull; <strong className="text-zinc-300">API Key:</strong> <code className="text-cyan-400">{activeKey}</code><br />
-                    3. Under the model listing, add custom models: <code className="text-zinc-300">gemini-3.5-flash-thinking</code> and <code className="text-zinc-300">gemini-3.5-flash</code>.<br />
+                    1. Open Cursor and navigate to{" "}
+                    <strong className="text-zinc-200">Settings ➔ Models ➔ OpenAI-Compatible</strong>.<br />
+                    2. Enable the section and enter the credentials:
+                    <br />
+                    &nbsp;&nbsp;&bull; <strong className="text-zinc-300">Base URL:</strong>{" "}
+                    <code className="text-cyan-400">{apiBaseUrl}</code>
+                    <br />
+                    &nbsp;&nbsp;&bull; <strong className="text-zinc-300">API Key:</strong>{" "}
+                    <code className="text-cyan-400">{activeKey}</code>
+                    <br />
+                    3. Under the model listing, add custom models:{" "}
+                    <code className="text-zinc-300">gemini-3.5-flash-thinking</code> and{" "}
+                    <code className="text-zinc-300">gemini-3.5-flash</code>.<br />
                     4. Disable standard OpenAI models to route requests exclusively to the Web2API gateway.
                   </p>
                 </div>
@@ -447,12 +471,11 @@ models = [${modelsList}]`;
                     </code>
                   </p>
                   <p className="text-zinc-400">
-                    Add or modify the <code className="text-zinc-350 bg-zinc-900 px-1 rounded">"language_models"</code> field:
+                    Add or modify the <code className="text-zinc-350 bg-zinc-900 px-1 rounded">"language_models"</code>{" "}
+                    field:
                   </p>
                   <div className="relative bg-[#0e0f13] border border-zinc-850 rounded p-4 text-[9px] block">
-                    <pre className="overflow-x-auto select-all leading-normal text-zinc-300">
-                      {getZedConfig()}
-                    </pre>
+                    <pre className="overflow-x-auto select-all leading-normal text-zinc-300">{getZedConfig()}</pre>
                     <button
                       type="button"
                       onClick={() => copyGuideText(getZedConfig(), "zed-config-copy")}
@@ -473,13 +496,22 @@ models = [${modelsList}]`;
                 <div className="space-y-3 pt-2">
                   <h4 className="font-bold text-zinc-200 text-xs">JetBrains AI Assistant / LLM Plugins</h4>
                   <p className="text-zinc-400 leading-relaxed font-mono">
-                    1. Open JetBrains Settings / Preferences (Ctrl+Alt+S).<br />
-                    2. Go to <strong className="text-zinc-200">Tools ➔ AI assistant</strong> or install third-party plugins like Bito or Continue.<br />
+                    1. Open JetBrains Settings / Preferences (Ctrl+Alt+S).
+                    <br />
+                    2. Go to <strong className="text-zinc-200">Tools ➔ AI assistant</strong> or install third-party
+                    plugins like Bito or Continue.
+                    <br />
                     3. Choose <strong className="text-zinc-200">Custom OpenAI Endpoint</strong>.<br />
-                    4. Set the parameters:<br />
-                    &nbsp;&nbsp;&bull; <strong className="text-zinc-300">API URL:</strong> <code className="text-cyan-400">{apiBaseUrl}</code><br />
-                    &nbsp;&nbsp;&bull; <strong className="text-zinc-300">API Key:</strong> <code className="text-cyan-400">{activeKey}</code><br />
-                    5. Manually configure the active model name to: <code className="text-cyan-400">gemini-3.5-flash-thinking</code>.
+                    4. Set the parameters:
+                    <br />
+                    &nbsp;&nbsp;&bull; <strong className="text-zinc-300">API URL:</strong>{" "}
+                    <code className="text-cyan-400">{apiBaseUrl}</code>
+                    <br />
+                    &nbsp;&nbsp;&bull; <strong className="text-zinc-300">API Key:</strong>{" "}
+                    <code className="text-cyan-400">{activeKey}</code>
+                    <br />
+                    5. Manually configure the active model name to:{" "}
+                    <code className="text-cyan-400">gemini-3.5-flash-thinking</code>.
                   </p>
                 </div>
               )}
@@ -491,9 +523,7 @@ models = [${modelsList}]`;
                     Paste this into your provider settings inside `openclaw.toml`:
                   </p>
                   <div className="relative bg-[#0e0f13] border border-zinc-855 rounded p-4 text-[9px] block">
-                    <pre className="overflow-x-auto select-all leading-normal text-zinc-300">
-                      {getOpenClawConfig()}
-                    </pre>
+                    <pre className="overflow-x-auto select-all leading-normal text-zinc-300">{getOpenClawConfig()}</pre>
                     <button
                       type="button"
                       onClick={() => copyGuideText(getOpenClawConfig(), "openclaw-toml-copy")}
@@ -513,12 +543,10 @@ models = [${modelsList}]`;
               {activeProvider === "codex_cli" && (
                 <div className="space-y-3 pt-2 font-mono">
                   <h4 className="font-bold text-zinc-200 text-xs">Custom Shell Script / cURL Testing</h4>
-                  <p className="text-zinc-400">
-                    Quickly verify connection using standard command-line tools:
-                  </p>
+                  <p className="text-zinc-400">Quickly verify connection using standard command-line tools:</p>
                   <div className="relative bg-[#0e0f13] border border-zinc-850 rounded p-4 text-[9px] block">
                     <pre className="overflow-x-auto select-all leading-normal text-zinc-300">
-{`curl ${apiBaseUrl}/chat/completions \\
+                      {`curl ${apiBaseUrl}/chat/completions \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer ${activeKey}" \\
   -d '{
@@ -537,11 +565,7 @@ models = [${modelsList}]`;
                       className="absolute top-4 right-4 text-zinc-550 hover:text-cyan-400 transition p-1 bg-zinc-900 border border-zinc-850 rounded"
                       title="Copy cURL test query"
                     >
-                      {copiedId === "curl-test" ? (
-                        <Check size={12} className="text-emerald-500" />
-                      ) : (
-                        <Copy size={12} />
-                      )}
+                      {copiedId === "curl-test" ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
                     </button>
                   </div>
                 </div>
@@ -563,7 +587,8 @@ models = [${modelsList}]`;
 
             <div className="space-y-3.5 text-[11px] text-zinc-350 font-mono">
               <p className="text-zinc-400 leading-relaxed">
-                The gateway exposes the following model identifiers which can be passed to the `/v1/chat/completions` API:
+                The gateway exposes the following model identifiers which can be passed to the `/v1/chat/completions`
+                API:
               </p>
 
               <div className="overflow-x-auto">
@@ -594,7 +619,9 @@ models = [${modelsList}]`;
                     <tr className="hover:bg-[#0e0f13]/40 transition">
                       <td className="py-2.5 font-bold text-cyan-400 select-all">gemini-3.1-pro</td>
                       <td className="py-2.5 px-4 text-zinc-400 font-semibold">~12k chars</td>
-                      <td className="py-2.5 text-zinc-400">Pro features (requires loaded session cookies in gateway env)</td>
+                      <td className="py-2.5 text-zinc-400">
+                        Pro features (requires loaded session cookies in gateway env)
+                      </td>
                     </tr>
                     <tr className="hover:bg-[#0e0f13]/40 transition">
                       <td className="py-2.5 font-bold text-cyan-400 select-all">gemini-auto</td>
@@ -615,10 +642,15 @@ models = [${modelsList}]`;
                   [Deep Thinking Depth Control]
                 </span>
                 <p className="text-zinc-400 leading-relaxed text-[10px]">
-                  You can append <code className="text-cyan-400 font-mono">@think=N</code> to the model name to specify thinking depth (where 0 is deepest, 4 is shallowest):<br />
-                  &bull; <code className="text-zinc-350">gemini-3.5-flash-thinking@think=0</code> (Deepest, default)<br />
-                  &bull; <code className="text-zinc-350">gemini-3.5-flash-thinking@think=2</code> (Medium depth)<br />
-                  &bull; <code className="text-zinc-350">gemini-3.5-flash-thinking@think=4</code> (Shallowest, fastest thinking)
+                  You can append <code className="text-cyan-400 font-mono">@think=N</code> to the model name to specify
+                  thinking depth (where 0 is deepest, 4 is shallowest):
+                  <br />
+                  &bull; <code className="text-zinc-350">gemini-3.5-flash-thinking@think=0</code> (Deepest, default)
+                  <br />
+                  &bull; <code className="text-zinc-350">gemini-3.5-flash-thinking@think=2</code> (Medium depth)
+                  <br />
+                  &bull; <code className="text-zinc-350">gemini-3.5-flash-thinking@think=4</code> (Shallowest, fastest
+                  thinking)
                 </p>
               </div>
             </div>
@@ -638,7 +670,8 @@ models = [${modelsList}]`;
 
             <div className="space-y-3.5 text-[11px] text-zinc-300 font-mono">
               <p className="leading-relaxed text-zinc-400">
-                To route queries through Google Gemini's web backend (necessary to unlock the Pro tier), you must extract your active browser session cookies and load them in the gateway:
+                To route queries through Google Gemini's web backend (necessary to unlock the Pro tier), you must
+                extract your active browser session cookies and load them in the gateway:
               </p>
 
               <div className="relative border-l border-zinc-800 pl-4 space-y-3.5 py-0.5">
@@ -647,10 +680,31 @@ models = [${modelsList}]`;
                     A. Extract Session Cookies
                   </div>
                   <p className="text-zinc-400">
-                    1. Visit <a href="https://gemini.google.com" target="_blank" rel="noreferrer" className="text-cyan-400 hover:underline">gemini.google.com</a> and sign in.<br />
-                    2. Press <kbd className="px-1.5 py-0.5 bg-zinc-900 border border-zinc-850 rounded text-[9px] text-zinc-300">F12</kbd> or right-click ➔ Inspect to open DevTools.<br />
-                    3. Go to <strong className="text-zinc-200">Application (or Storage) ➔ Cookies ➔ https://gemini.google.com</strong>.<br />
-                    4. Copy the values of the cookies: <strong className="text-zinc-300">SID</strong>, <strong className="text-zinc-300">SAPISID</strong>, and <strong className="text-zinc-300">__Secure-1PSID</strong>.
+                    1. Visit{" "}
+                    <a
+                      href="https://gemini.google.com"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-cyan-400 hover:underline"
+                    >
+                      gemini.google.com
+                    </a>{" "}
+                    and sign in.
+                    <br />
+                    2. Press{" "}
+                    <kbd className="px-1.5 py-0.5 bg-zinc-900 border border-zinc-850 rounded text-[9px] text-zinc-300">
+                      F12
+                    </kbd>{" "}
+                    or right-click ➔ Inspect to open DevTools.
+                    <br />
+                    3. Go to{" "}
+                    <strong className="text-zinc-200">
+                      Application (or Storage) ➔ Cookies ➔ https://gemini.google.com
+                    </strong>
+                    .<br />
+                    4. Copy the values of the cookies: <strong className="text-zinc-300">SID</strong>,{" "}
+                    <strong className="text-zinc-300">SAPISID</strong>, and{" "}
+                    <strong className="text-zinc-300">__Secure-1PSID</strong>.
                   </p>
                 </div>
 
@@ -659,7 +713,11 @@ models = [${modelsList}]`;
                     B. Save in Local Environment (`cookie.txt`)
                   </div>
                   <p className="text-zinc-400">
-                    Format these values into a single line inside a text file named <code className="text-cyan-400 bg-zinc-900 px-1 py-0.5 rounded border border-zinc-850">cookie.txt</code> at the gateway root:
+                    Format these values into a single line inside a text file named{" "}
+                    <code className="text-cyan-400 bg-zinc-900 px-1 py-0.5 rounded border border-zinc-850">
+                      cookie.txt
+                    </code>{" "}
+                    at the gateway root:
                   </p>
                   <div className="relative bg-[#0e0f13] border border-zinc-850 rounded p-3 text-[10px] break-all select-all flex justify-between items-center gap-4 text-zinc-300">
                     <span>
@@ -702,7 +760,8 @@ models = [${modelsList}]`;
 
             <div className="space-y-4 text-[11px] text-zinc-300 font-mono">
               <p className="leading-relaxed text-zinc-400">
-                Paste your extracted cookie string below to test if the gateway can successfully authenticate with Google Gemini:
+                Paste your extracted cookie string below to test if the gateway can successfully authenticate with
+                Google Gemini:
               </p>
 
               <div className="space-y-3">
@@ -739,7 +798,9 @@ models = [${modelsList}]`;
                           : "bg-rose-500/10 border-rose-500/20 text-rose-400"
                       }`}
                     >
-                      <span className={`h-1.5 w-1.5 rounded-full ${testResult.success ? "bg-emerald-400" : "bg-rose-400"}`} />
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full ${testResult.success ? "bg-emerald-400" : "bg-rose-400"}`}
+                      />
                       <span>{testResult.message}</span>
                     </div>
                   )}
@@ -766,32 +827,34 @@ models = [${modelsList}]`;
                   id: 1,
                   err: 'Error "Cookie expired or invalid"',
                   cause: "Your Google session credentials have expired or you logged out in your browser.",
-                  solve: "Open gemini.google.com, make sure you are actively logged in, and copy fresh cookies.",
+                  solve: "Open gemini.google.com, make sure you are actively logged in, and copy fresh cookies."
                 },
                 {
                   id: 2,
                   err: 'Error "API key has expired"',
                   cause: "The API bearer key generated via Key Generator has reached its expiration timestamp.",
-                  solve: "Issue a new API Key on the Key tab with a longer validity period.",
+                  solve: "Issue a new API Key on the Key tab with a longer validity period."
                 },
                 {
                   id: 3,
                   err: 'Error "Rate limit exceeded / 429"',
                   cause: "The client or cookie has exceeded the maximum queries per minute rate limits.",
-                  solve: "Throttle request loops on the client side. If using custom bearer keys, create one with no limits.",
+                  solve:
+                    "Throttle request loops on the client side. If using custom bearer keys, create one with no limits."
                 },
                 {
                   id: 4,
                   err: "OpenCode client connection failure",
                   cause: "Incorrect baseURL matching or authorization header configuration.",
-                  solve: "Make sure baseURL ends with /v1. Check that the port matches the host configuration (default 8081).",
+                  solve:
+                    "Make sure baseURL ends with /v1. Check that the port matches the host configuration (default 8081)."
                 },
                 {
                   id: 5,
                   err: "Local gateway server fails to boot",
                   cause: "Another application is already listening on default port 8081.",
-                  solve: "Change the PORT settings inside apps/gateway/.env to another unoccupied port.",
-                },
+                  solve: "Change the PORT settings inside apps/gateway/.env to another unoccupied port."
+                }
               ].map((trouble) => (
                 <div key={trouble.id} className="space-y-1.5 border-b border-zinc-900 pb-3 last:border-0 last:pb-0">
                   <h4 className="font-bold text-zinc-200 text-xs flex items-center gap-1.5">

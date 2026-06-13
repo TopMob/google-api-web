@@ -22,7 +22,8 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { name, project_id, allowed_models, daily_requests_limit, daily_tokens_limit, rate_limit_rpm, expires_at } = body;
+    const { name, project_id, allowed_models, daily_requests_limit, daily_tokens_limit, rate_limit_rpm, expires_at } =
+      body;
     if (!name || !project_id) {
       return NextResponse.json({ error: "Name and project_id are required" }, { status: 400 });
     }
@@ -55,12 +56,7 @@ export async function PATCH(req: NextRequest) {
     if (!id || typeof active !== "boolean") {
       return NextResponse.json({ error: "id and active state are required" }, { status: 400 });
     }
-    const { data, error } = await supabase
-      .from("api_keys")
-      .update({ active })
-      .eq("id", id)
-      .select()
-      .single();
+    const { data, error } = await supabase.from("api_keys").update({ active }).eq("id", id).select().single();
     if (error) throw error;
     return NextResponse.json(data);
   } catch (error: any) {

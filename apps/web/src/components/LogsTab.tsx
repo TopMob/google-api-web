@@ -32,9 +32,7 @@ export default function LogsTab({ recentLogs }: LogsTabProps) {
               Rolling Analytical Stream
             </h3>
           </div>
-          <span className="text-[9px] text-zinc-550 font-mono">
-            STDOUT / GATEWAY_LOGS
-          </span>
+          <span className="text-[9px] text-zinc-550 font-mono">STDOUT / GATEWAY_LOGS</span>
         </div>
 
         {/* Console Logs Wrapper */}
@@ -78,9 +76,7 @@ export default function LogsTab({ recentLogs }: LogsTabProps) {
                     {/* Log Specs row */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 text-[9px] text-zinc-400 border-t border-zinc-900 select-text">
                       <div>
-                        <span className="text-zinc-600 uppercase block text-[8px] select-none font-bold">
-                          Project
-                        </span>
+                        <span className="text-zinc-600 uppercase block text-[8px] select-none font-bold">Project</span>
                         <span className="text-zinc-350 font-semibold">{l.projects?.name || "N/A"}</span>
                       </div>
                       <div>
@@ -93,17 +89,11 @@ export default function LogsTab({ recentLogs }: LogsTabProps) {
                         <span className="text-zinc-600 uppercase block text-[8px] select-none font-bold">
                           Data Size
                         </span>
-                        <span className="text-zinc-350 font-semibold text-cyan-400">
-                          {l.total_tokens} tokens
-                        </span>
+                        <span className="text-zinc-350 font-semibold text-cyan-400">{l.total_tokens} tokens</span>
                       </div>
                       <div>
-                        <span className="text-zinc-600 uppercase block text-[8px] select-none font-bold">
-                          Latency
-                        </span>
-                        <span className="text-zinc-350 font-semibold text-amber-400">
-                          {l.duration_ms}ms
-                        </span>
+                        <span className="text-zinc-600 uppercase block text-[8px] select-none font-bold">Latency</span>
+                        <span className="text-zinc-350 font-semibold text-amber-400">{l.duration_ms}ms</span>
                       </div>
                     </div>
                   </div>

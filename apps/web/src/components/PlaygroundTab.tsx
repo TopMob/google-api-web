@@ -23,7 +23,7 @@ export default function PlaygroundTab({
   setInput,
   isLoading,
   handleSubmit,
-  gatewayStatus,
+  gatewayStatus
 }: PlaygroundTabProps) {
   const chatBottomRef = useRef<HTMLDivElement>(null);
 
@@ -42,11 +42,10 @@ export default function PlaygroundTab({
               <div className="absolute -inset-1 rounded-xl bg-cyan-400/5 blur-md -z-10" />
             </div>
             <div className="space-y-1.5">
-              <h2 className="text-sm font-bold text-white font-mono uppercase tracking-wider">
-                Gateway Playground
-              </h2>
+              <h2 className="text-sm font-bold text-white font-mono uppercase tracking-wider">Gateway Playground</h2>
               <p className="text-[11px] text-zinc-400 leading-relaxed font-mono">
-                Submit raw completions directly to your local Fastify gateway. This playground interacts with the Google Web session using OpenAI schema compatibility.
+                Submit raw completions directly to your local Fastify gateway. This playground interacts with the Google
+                Web session using OpenAI schema compatibility.
               </p>
             </div>
           </div>
@@ -102,9 +101,18 @@ export default function PlaygroundTab({
                   </span>
                 </div>
                 <div className="rounded border border-dashed border-zinc-800 bg-[#08090b] p-4 flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 bg-cyan-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                  <span className="h-1.5 w-1.5 bg-cyan-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                  <span className="h-1.5 w-1.5 bg-cyan-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                  <span
+                    className="h-1.5 w-1.5 bg-cyan-400 rounded-full animate-bounce"
+                    style={{ animationDelay: "0ms" }}
+                  />
+                  <span
+                    className="h-1.5 w-1.5 bg-cyan-400 rounded-full animate-bounce"
+                    style={{ animationDelay: "150ms" }}
+                  />
+                  <span
+                    className="h-1.5 w-1.5 bg-cyan-400 rounded-full animate-bounce"
+                    style={{ animationDelay: "300ms" }}
+                  />
                 </div>
               </div>
             )}

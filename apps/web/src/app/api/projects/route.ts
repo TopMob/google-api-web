@@ -7,10 +7,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 export async function GET() {
   try {
-    const { data, error } = await supabase
-      .from("projects")
-      .select("*")
-      .order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("projects").select("*").order("created_at", { ascending: false });
     if (error) throw error;
     return NextResponse.json(data);
   } catch (error: any) {
@@ -25,11 +22,7 @@ export async function POST(req: NextRequest) {
     if (!name) {
       return NextResponse.json({ error: "Project name is required" }, { status: 400 });
     }
-    const { data, error } = await supabase
-      .from("projects")
-      .insert({ name })
-      .select()
-      .single();
+    const { data, error } = await supabase.from("projects").insert({ name }).select().single();
     if (error) throw error;
     return NextResponse.json(data);
   } catch (error: any) {

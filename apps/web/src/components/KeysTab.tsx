@@ -39,7 +39,7 @@ export default function KeysTab({
   handleCreateKey,
   handleToggleKey,
   copiedKey,
-  copyText,
+  copyText
 }: KeysTabProps) {
   return (
     <div className="flex-grow overflow-y-auto px-6 py-6 space-y-6 custom-scrollbar font-sans bg-[#07080a]">
@@ -48,9 +48,7 @@ export default function KeysTab({
         <div className="bg-[#0b0c0f] border border-zinc-800 rounded p-5 space-y-4">
           <div className="flex items-center gap-2 border-b border-zinc-900 pb-3">
             <Key size={14} className="text-cyan-400" />
-            <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono">
-              Key Issuance Generator
-            </h3>
+            <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono">Key Issuance Generator</h3>
           </div>
 
           <form onSubmit={handleCreateKey} className="space-y-4">
@@ -69,21 +67,31 @@ export default function KeysTab({
               </div>
 
               <div className="space-y-1">
-                <label className="text-[9px] font-mono tracking-wider text-zinc-500 uppercase">
-                  Validity Period
-                </label>
+                <label className="text-[9px] font-mono tracking-wider text-zinc-500 uppercase">Validity Period</label>
                 <div className="relative">
                   <select
                     value={newKeyExpiration}
                     onChange={(e) => setNewKeyExpiration(e.target.value)}
                     className="w-full bg-[#0e0f13] border border-zinc-850 focus:border-zinc-700 rounded px-3 py-2 text-xs font-mono text-zinc-300 outline-none transition cursor-pointer appearance-none"
                   >
-                    <option value="never" className="bg-[#090a0f] font-mono">Never Expire</option>
-                    <option value="1h" className="bg-[#090a0f] font-mono">1 Hour</option>
-                    <option value="24h" className="bg-[#090a0f] font-mono">24 Hours</option>
-                    <option value="7d" className="bg-[#090a0f] font-mono">7 Days</option>
-                    <option value="30d" className="bg-[#090a0f] font-mono">30 Days</option>
-                    <option value="90d" className="bg-[#090a0f] font-mono">90 Days</option>
+                    <option value="never" className="bg-[#090a0f] font-mono">
+                      Never Expire
+                    </option>
+                    <option value="1h" className="bg-[#090a0f] font-mono">
+                      1 Hour
+                    </option>
+                    <option value="24h" className="bg-[#090a0f] font-mono">
+                      24 Hours
+                    </option>
+                    <option value="7d" className="bg-[#090a0f] font-mono">
+                      7 Days
+                    </option>
+                    <option value="30d" className="bg-[#090a0f] font-mono">
+                      30 Days
+                    </option>
+                    <option value="90d" className="bg-[#090a0f] font-mono">
+                      90 Days
+                    </option>
                   </select>
                   <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-500">
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -145,11 +153,7 @@ export default function KeysTab({
                           onClick={() => copyText(k.key)}
                           className="text-zinc-500 hover:text-cyan-400 transition"
                         >
-                          {copiedKey === k.key ? (
-                            <Check size={11} className="text-emerald-500" />
-                          ) : (
-                            <Copy size={11} />
-                          )}
+                          {copiedKey === k.key ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
                         </button>
                       </td>
                       <td className="py-3 px-4 text-zinc-400 text-[11px]">
@@ -164,11 +168,13 @@ export default function KeysTab({
                             isExpired
                               ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
                               : k.active
-                              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                              : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
+                                ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                                : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
                           }`}
                         >
-                          <span className={`h-1 w-1 rounded-full ${isExpired ? "bg-amber-400" : k.active ? "bg-emerald-400" : "bg-rose-400"}`} />
+                          <span
+                            className={`h-1 w-1 rounded-full ${isExpired ? "bg-amber-400" : k.active ? "bg-emerald-400" : "bg-rose-400"}`}
+                          />
                           {isExpired ? "Expired" : k.active ? "Active" : "Disabled"}
                         </span>
                       </td>
@@ -180,8 +186,8 @@ export default function KeysTab({
                             isExpired
                               ? "border-zinc-800 text-zinc-600 cursor-not-allowed"
                               : k.active
-                              ? "border-rose-500/20 text-rose-400 hover:bg-rose-500/10"
-                              : "border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/10"
+                                ? "border-rose-500/20 text-rose-400 hover:bg-rose-500/10"
+                                : "border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/10"
                           }`}
                         >
                           {k.active ? "Deactivate" : "Activate"}

@@ -6,19 +6,19 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const gatewayUrl = process.env.GATEWAY_URL || "http://127.0.0.1:8081";
-    
+
     const authHeader = req.headers.get("authorization") || "";
     const headers: Record<string, string> = {
-      "Content-Type": "application/json",
+      "Content-Type": "application/json"
     };
     if (authHeader) {
       headers["authorization"] = authHeader;
     }
-    
+
     const response = await fetch(`${gatewayUrl}/v1/chat/completions`, {
       method: "POST",
       headers,
-      body: JSON.stringify(body),
+      body: JSON.stringify(body)
     });
 
     if (!response.ok) {
@@ -46,16 +46,16 @@ export async function POST(req: NextRequest) {
           } finally {
             controller.close();
           }
-        },
+        }
       });
 
       return new Response(stream, {
         headers: {
           "Content-Type": "text/event-stream",
           "Cache-Control": "no-cache",
-          "Connection": "keep-alive",
-          "Access-Control-Allow-Origin": "*",
-        },
+          Connection: "keep-alive",
+          "Access-Control-Allow-Origin": "*"
+        }
       });
     }
 

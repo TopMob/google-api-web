@@ -1,27 +1,25 @@
-
-
 Вот максимально полная выжимка — **всё, что нужно другому ИИ-агенту, чтобы переписать твой API-агрегатор под нормальный формат**. Я не даю готового решения, а даю ** 폭발ную информацию по форматам, эндпоинтам, полям, настройкам клиентов и подводным камням**.
 
-***
+---
 
 # 1. OpenAI-Compatible API — что именно нужно поддерживать
 
 ## 1.1. Ключевые эндпоинты
 
-| Эндпоинт | Метод | Зачем нужен | Обязателен для |
-| :-- | :-- | :-- | :-- |
-| `/v1/chat/completions` | POST | Основной чат-интерфейс | Любого OpenAI-клиента, OpenCode, LangChain, LlamaIndex, AutoGen, Vercel AI SDK [^1][^2] |
-| `/v1/models` | GET | Список доступных моделей | Клиенты, которые показывают выбор моделей (Cherry Studio, ChatBox, OpenCode) [^1] |
-| `/v1/responses` | POST | Responses API (новый формат OpenAI) | OpenAI Codex CLI, OpenCode (опционально) [^1] |
-| `/v1beta/models` | GET | Google-native API | Gemini CLI [^1] |
-| `/v1beta/models/{model}:generateContent` | POST | Google-native generateContent | Gemini CLI, не-OpenAI клиенты [^1] |
-| `/v1beta/models/{model}:streamGenerateContent` | POST | Google-native streaming | Gemini CLI streaming [^1] |
+| Эндпоинт                                       | Метод | Зачем нужен                         | Обязателен для                                                                          |
+| :--------------------------------------------- | :---- | :---------------------------------- | :-------------------------------------------------------------------------------------- |
+| `/v1/chat/completions`                         | POST  | Основной чат-интерфейс              | Любого OpenAI-клиента, OpenCode, LangChain, LlamaIndex, AutoGen, Vercel AI SDK [^1][^2] |
+| `/v1/models`                                   | GET   | Список доступных моделей            | Клиенты, которые показывают выбор моделей (Cherry Studio, ChatBox, OpenCode) [^1]       |
+| `/v1/responses`                                | POST  | Responses API (новый формат OpenAI) | OpenAI Codex CLI, OpenCode (опционально) [^1]                                           |
+| `/v1beta/models`                               | GET   | Google-native API                   | Gemini CLI [^1]                                                                         |
+| `/v1beta/models/{model}:generateContent`       | POST  | Google-native generateContent       | Gemini CLI, не-OpenAI клиенты [^1]                                                      |
+| `/v1beta/models/{model}:streamGenerateContent` | POST  | Google-native streaming             | Gemini CLI streaming [^1]                                                               |
 
 **Минимум для OpenCode:** `/v1/chat/completions` + `/v1/models`[^2][^1]
 
 **Для максимально широкой совместимости:** добавить `/v1/responses` + Google-native endpoints[^1]
 
-***
+---
 
 ## 1.2. Формат запроса `/v1/chat/completions`
 
@@ -29,11 +27,12 @@
 
 ```json
 {
-  "model": "gemini-3.5-flash-thinking",           // строка, обязательно
-  "messages": [                                    // массив, обязательно
+  "model": "gemini-3.5-flash-thinking", // строка, обязательно
+  "messages": [
+    // массив, обязательно
     {
-      "role": "system",                            // "system" | "user" | "assistant" | "tool"
-      "content": "You are a helpful assistant."    // строка или массив content parts
+      "role": "system", // "system" | "user" | "assistant" | "tool"
+      "content": "You are a helpful assistant." // строка или массив content parts
     },
     {
       "role": "user",
@@ -43,23 +42,22 @@
 }
 ```
 
-
 ### Опциональные поля запроса (важные для агентов)
 
-| Поле | Тип | Описание | Важно для |
-| :-- | :-- | :-- | :-- |
-| `stream` | boolean | `true` = SSE streaming | Все современные клиенты [^1][^3] |
-| `temperature` | float (0–2) | Температура генерации | Качество/случайность ответа |
-| `max_tokens` | integer | Макс. токенов ответа | Ограничение длины |
-| `top_p` | float (0–1) | Nucleus sampling | Альтернатива temperature |
-| `frequency_penalty` | float (-2 to 2) | Штраф за повторения | Снижение повторений |
-| `presence_penalty` | float (-2 to 2) | Штраф за наличие токена | Разнообразие |
-| `stop` | string[] | Секвенции остановки | Контроль окончания |
-| `tools` | object[] | Массив функций для tool calling | Агенты, OpenCode [^1][^4] |
-| `tool_choice` | string/object | `"auto"` | `"none"` |
-| `response_format` | object | `{"type": "json_object"}` или `{"type": "json_schema", ...}` | JSON mode, structured outputs [^6][^4] |
-| `seed` | integer | Seed для детерминизма | Воспроизводимость |
-| `user` | string | ID пользователя | Abuse detection, трекинг |
+| Поле                | Тип             | Описание                                                     | Важно для                              |
+| :------------------ | :-------------- | :----------------------------------------------------------- | :------------------------------------- |
+| `stream`            | boolean         | `true` = SSE streaming                                       | Все современные клиенты [^1][^3]       |
+| `temperature`       | float (0–2)     | Температура генерации                                        | Качество/случайность ответа            |
+| `max_tokens`        | integer         | Макс. токенов ответа                                         | Ограничение длины                      |
+| `top_p`             | float (0–1)     | Nucleus sampling                                             | Альтернатива temperature               |
+| `frequency_penalty` | float (-2 to 2) | Штраф за повторения                                          | Снижение повторений                    |
+| `presence_penalty`  | float (-2 to 2) | Штраф за наличие токена                                      | Разнообразие                           |
+| `stop`              | string[]        | Секвенции остановки                                          | Контроль окончания                     |
+| `tools`             | object[]        | Массив функций для tool calling                              | Агенты, OpenCode [^1][^4]              |
+| `tool_choice`       | string/object   | `"auto"`                                                     | `"none"`                               |
+| `response_format`   | object          | `{"type": "json_object"}` или `{"type": "json_schema", ...}` | JSON mode, structured outputs [^6][^4] |
+| `seed`              | integer         | Seed для детерминизма                                        | Воспроизводимость                      |
+| `user`              | string          | ID пользователя                                              | Abuse detection, трекинг               |
 
 ### Формат `messages`
 
@@ -67,7 +65,7 @@
 
 ```json
 {
-  "role": "user",  // или "system", "assistant", "tool"
+  "role": "user", // или "system", "assistant", "tool"
   "content": "Текст сообщения"
 }
 ```
@@ -78,8 +76,8 @@
 {
   "role": "user",
   "content": [
-    {"type": "text", "text": "Что на этой картинке?"},
-    {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,..."}}
+    { "type": "text", "text": "Что на этой картинке?" },
+    { "type": "image_url", "image_url": { "url": "data:image/jpeg;base64,..." } }
   ]
 }
 ```
@@ -107,7 +105,7 @@
           "required": ["city"],
           "additionalProperties": false
         },
-        "strict": true  // JSON mode в action [web:37]
+        "strict": true // JSON mode в action [web:37]
       }
     }
   ]
@@ -116,7 +114,7 @@
 
 **Твой прокси заявляет full function calling support** — это критично для агентов.[^1]
 
-***
+---
 
 ## 1.3. Формат ответа `/v1/chat/completions` (не streaming)
 
@@ -132,7 +130,8 @@
       "message": {
         "role": "assistant",
         "content": "Hello! How can I help you?",
-        "tool_calls": [  // если вышли tool calls
+        "tool_calls": [
+          // если вышли tool calls
           {
             "id": "call_abc123",
             "type": "function",
@@ -143,7 +142,7 @@
           }
         ]
       },
-      "finish_reason": "stop"  // или "length", "tool_calls"
+      "finish_reason": "stop" // или "length", "tool_calls"
     }
   ],
   "usage": {
@@ -162,7 +161,7 @@
 - `finish_reason` — почему остановилось[^5]
 - `usage` — токены (многие клиенты это показывают)[^5]
 
-***
+---
 
 ## 1.4. Формат streaming (SSE)
 
@@ -186,14 +185,14 @@ data: [DONE]
 {
   "delta": {
     "content": "Часть текста",
-    "role": "assistant"  // обычно только в первом чанке
+    "role": "assistant" // обычно только в первом чанке
   }
 }
 ```
 
 **Твой прокси заявляет SSE streaming support** — это критично для UX.[^1]
 
-***
+---
 
 ## 1.5. Формат `/v1/models`
 
@@ -221,15 +220,14 @@ data: [DONE]
 
 **Модели, которые заявлены в README:**
 
-
-| Model ID | Описание | Выход |
-| :-- | :-- | :-- |
-| `gemini-3.5-flash` | Fast general-purpose | ~12k chars [^1] |
-| `gemini-3.5-flash-thinking` | Deep thinking, longest output | **~20k chars** [^1] |
-| `gemini-3.5-flash-thinking-lite` | Adaptive thinking depth | ~15k chars [^1] |
-| `gemini-3.1-pro` | Pro (нужен cookie для реального роутинга) | ~12k chars [^1] |
-| `gemini-auto` | Auto model selection | varies [^1] |
-| `gemini-flash-lite` | Lightweight fast | ~10k chars [^1] |
+| Model ID                         | Описание                                  | Выход               |
+| :------------------------------- | :---------------------------------------- | :------------------ |
+| `gemini-3.5-flash`               | Fast general-purpose                      | ~12k chars [^1]     |
+| `gemini-3.5-flash-thinking`      | Deep thinking, longest output             | **~20k chars** [^1] |
+| `gemini-3.5-flash-thinking-lite` | Adaptive thinking depth                   | ~15k chars [^1]     |
+| `gemini-3.1-pro`                 | Pro (нужен cookie для реального роутинга) | ~12k chars [^1]     |
+| `gemini-auto`                    | Auto model selection                      | varies [^1]         |
+| `gemini-flash-lite`              | Lightweight fast                          | ~10k chars [^1]     |
 
 **Thinking depth:** добавь `@think=N` к названию модели:
 
@@ -237,7 +235,7 @@ data: [DONE]
 - `gemini-3.5-flash-thinking@think=2` — medium[^1]
 - `gemini-3.5-flash-thinking@think=4` — shallowest[^1]
 
-***
+---
 
 # 2. Подключение OpenCode (npx opencode-ai)
 
@@ -297,7 +295,6 @@ OpenCode — это **терминальный AI coding agent** (как Claude 
 - `apiKey`: `sk-your-key` (из `config.json` твоего прокси)[^9][^1]
 - `models`: маппинг model ID → display name[^9]
 
-
 ### Шаг 3: Проверь подключение
 
 ```bash
@@ -305,8 +302,7 @@ opencode auth list  # увидишь ли твой провайдер [web:18]
 opencode models     # увидишь ли модели [web:18]
 ```
 
-
-***
+---
 
 ## 2.3. Environment variables (альтернатива config)
 
@@ -319,7 +315,7 @@ export OPENAI_API_KEY="sk-your-key"
 
 Для кастомного baseURL всё равно нужен config.[^12]
 
-***
+---
 
 ## 2.4. Примеры других клиентов (для проверки)
 
@@ -334,7 +330,6 @@ curl http://localhost:8081/v1/chat/completions \
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 ```
-
 
 ### OpenAI Python SDK
 
@@ -354,7 +349,6 @@ resp = client.chat.completions.create(
 print(resp.choices[^0].message.content)
 ```
 
-
 ### OpenAI JavaScript/TypeScript SDK
 
 ```typescript
@@ -373,17 +367,15 @@ const completion = await openai.chat.completions.create({
 console.log(completion.choices[^0].message.content)
 ```
 
-
 ### Cherry Studio / ChatBox / любой OpenAI клиент
 
-| Field | Value |
-| :-- | :-- |
-| Base URL | `http://localhost:8081/v1` [^1] |
-| API Key | любой `api_keys` из `config.json`; любой, если не настроен [^1] |
-| Model | `gemini-3.5-flash-thinking` [^1] |
+| Field    | Value                                                           |
+| :------- | :-------------------------------------------------------------- |
+| Base URL | `http://localhost:8081/v1` [^1]                                 |
+| API Key  | любой `api_keys` из `config.json`; любой, если не настроен [^1] |
+| Model    | `gemini-3.5-flash-thinking` [^1]                                |
 
-
-***
+---
 
 # 3. Конфигурация твоего proxy-server (gemini-web2api)
 
@@ -408,18 +400,16 @@ console.log(completion.choices[^0].message.content)
 
 **Ключевые моменты:**
 
+| Поле          | Значение                  | Поведение                                                           |
+| :------------ | :------------------------ | :------------------------------------------------------------------ |
+| `api_keys`    | `[]`                      | Auth отключён, любой ключ проходит [^1]                             |
+| `api_keys`    | `["sk-..."]`              | Требуется `Authorization: Bearer <key>` или `x-api-key: <key>` [^1] |
+| `cookie_file` | `null`                    | Anonymous access, все модели работают [^1]                          |
+| `cookie_file` | `"cookie.txt"`            | Реальный `gemini-3.1-pro` (без cookie роутится на Flash) [^1]       |
+| `proxy`       | `null`                    | Прямой доступ к gemini.google.com [^1]                              |
+| `proxy`       | `"http://127.0.0.1:7890"` | Clash/V2Ray/Shadowsocks [^1]                                        |
 
-| Поле | Значение | Поведение |
-| :-- | :-- | :-- |
-| `api_keys` | `[]` | Auth отключён, любой ключ проходит [^1] |
-| `api_keys` | `["sk-..."]` | Требуется `Authorization: Bearer <key>` или `x-api-key: <key>` [^1] |
-| `cookie_file` | `null` | Anonymous access, все модели работают [^1] |
-| `cookie_file` | `"cookie.txt"` | Реальный `gemini-3.1-pro` (без cookie роутится на Flash) [^1] |
-| `proxy` | `null` | Прямой доступ к gemini.google.com [^1] |
-| `proxy` | `"http://127.0.0.1:7890"` | Clash/V2Ray/Shadowsocks [^1] |
-
-
-***
+---
 
 ## 3.2. Как получить cookies (для Pro)
 
@@ -427,6 +417,7 @@ console.log(completion.choices[^0].message.content)
 2. DevTools (F12) → Application → Cookies → `https://gemini.google.com`[^1]
 3. Скопируй: `SID`, `HSID`, `SSID`, `APISID`, `SAPISID`, `__Secure-1PSID`[^1]
 4. Создай `cookie.txt`:
+
 ```
 SID=your_sid_value; HSID=your_hsid_value; SSID=your_ssid_value; APISID=your_apisid_value; SAPISID=your_sapisid_value; __Secure-1PSID=your_1psid_value
 ```
@@ -434,12 +425,15 @@ SID=your_sid_value; HSID=your_hsid_value; SSID=your_ssid_value; APISID=your_apis
 **Или JSON формат:**
 
 ```json
-{"cookie": "SID=xxx; HSID=xxx; SSID=xxx; APISID=xxx; SAPISID=xxx; __Secure-1PSID=xxx", "sapisid": "your_sapisid_value"}
+{
+  "cookie": "SID=xxx; HSID=xxx; SSID=xxx; APISID=xxx; SAPISID=xxx; __Secure-1PSID=xxx",
+  "sapisid": "your_sapisid_value"
+}
 ```
 
 **Альтернатива:** расширение "Export Cookies" → Netscape format → конвертируй в single-line[^1]
 
-***
+---
 
 ## 3.3. Auth user + XSRF token
 
@@ -464,19 +458,18 @@ XSRF token из source кода страницы (находится как `SNl
 
 Если получаешь HTTP 400 с `xsrf` error → обнови Gemini Web, обнови `xsrf_token`[^1]
 
-***
+---
 
 # 4. Ограничения твоего решения (критично для агентов)
 
-| Ограничение | Описание | Влияние |
-| :-- | :-- | :-- |
-| **No image/multimodal input** | Gemini image upload требует proprietary RPC (WIZ/ProcessFile), невозможно в HTTP proxy [^1] | Изображения в сообщениях будут игнорироваться с уведомлением [^1] |
-| **Not real Pro/Ultra** | Без платного cookie `gemini-3.1-pro` роутится на Flash [^1] | Label "Pro" — это UI preference, не backend switch [^1] |
-| **Single-turn only** | Каждый запрос независим, мульти-тёрн симулируется включением предыдущих сообщений в prompt [^1] | Многошаговые диалоги не работают "из коробки", клиент сам собирает историю |
-| **Rate limits** | Google может throttle-ить частые запросы, сервер автоматически ретраит, но sustained heavy use может заблокировать [^1] | Низкий throughput для агентов с частыми запросами |
+| Ограничение                   | Описание                                                                                                                | Влияние                                                                    |
+| :---------------------------- | :---------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------- |
+| **No image/multimodal input** | Gemini image upload требует proprietary RPC (WIZ/ProcessFile), невозможно в HTTP proxy [^1]                             | Изображения в сообщениях будут игнорироваться с уведомлением [^1]          |
+| **Not real Pro/Ultra**        | Без платного cookie `gemini-3.1-pro` роутится на Flash [^1]                                                             | Label "Pro" — это UI preference, не backend switch [^1]                    |
+| **Single-turn only**          | Каждый запрос независим, мульти-тёрн симулируется включением предыдущих сообщений в prompt [^1]                         | Многошаговые диалоги не работают "из коробки", клиент сам собирает историю |
+| **Rate limits**               | Google может throttle-ить частые запросы, сервер автоматически ретраит, но sustained heavy use может заблокировать [^1] | Низкий throughput для агентов с частыми запросами                          |
 
-
-***
+---
 
 # 5. Docker / Docker Compose
 
@@ -503,7 +496,7 @@ docker run -d --name gemini-web2api \
 
 В `config.json`: `"cookie_file": "/app/cookie.txt"`[^1]
 
-***
+---
 
 ## 5.2. Docker Compose
 
@@ -512,8 +505,7 @@ cp config.example.json config.json
 docker compose up -d
 ```
 
-
-***
+---
 
 # 6. Google-native API (для Gemini CLI)
 
@@ -527,15 +519,13 @@ gemini
 
 **Эндпоинты:**
 
+| Эндпоинт                                       | Метод | Описание             |
+| :--------------------------------------------- | :---- | :------------------- |
+| `/v1beta/models`                               | GET   | List models [^1]     |
+| `/v1beta/models/{model}:generateContent`       | POST  | Non-streaming [^1]   |
+| `/v1beta/models/{model}:streamGenerateContent` | POST  | Streaming (SSE) [^1] |
 
-| Эндпоинт | Метод | Описание |
-| :-- | :-- | :-- |
-| `/v1beta/models` | GET | List models [^1] |
-| `/v1beta/models/{model}:generateContent` | POST | Non-streaming [^1] |
-| `/v1beta/models/{model}:streamGenerateContent` | POST | Streaming (SSE) [^1] |
-
-
-***
+---
 
 # 7. Как работает твой прокси (внутреннее устройство)
 
@@ -547,37 +537,36 @@ gemini
 
 **Pure Python, stdlib only, без внешних зависимостей**[^1]
 
-***
+---
 
 # 8. SDK и библиотеки, которые будут работать
 
 ## 8.1. Python
 
-| Библиотека | Поддержка | Пример |
-| :-- | :-- | :-- |
-| `openai` (official) | ✅ Полная | `base_url="http://localhost:8081/v1"` [^1] |
-| `langchain` | ✅ OpenAI香奈义 | `OpenAIChat(base_url=...)` |
-| `LlamaIndex` | ✅ OpenAI-compatible | `OpenAI(base_url=...)` |
-| `AutoGen` | ✅ Config list | `{"base_url": "...", "api_key": "..."}` [^2] |
+| Библиотека          | Поддержка            | Пример                                       |
+| :------------------ | :------------------- | :------------------------------------------- |
+| `openai` (official) | ✅ Полная            | `base_url="http://localhost:8081/v1"` [^1]   |
+| `langchain`         | ✅ OpenAI香奈义      | `OpenAIChat(base_url=...)`                   |
+| `LlamaIndex`        | ✅ OpenAI-compatible | `OpenAI(base_url=...)`                       |
+| `AutoGen`           | ✅ Config list       | `{"base_url": "...", "api_key": "..."}` [^2] |
 
 ## 8.2. JavaScript/TypeScript
 
-| Библиотека | Поддержка | Пример |
-| :-- | :-- | :-- |
-| `openai` (official) | ✅ Полная | `baseURL: "http://localhost:8081/v1"` [^2] |
-| `@ai-sdk/openai` | ✅ Vercel AI SDK | `baseURL: "..."` [^9] |
-| `@ai-sdk/openai-compatible` | ✅ Для кастомных провайдеров | `baseURL: "..."` [^9] |
+| Библиотека                  | Поддержка                    | Пример                                     |
+| :-------------------------- | :--------------------------- | :----------------------------------------- |
+| `openai` (official)         | ✅ Полная                    | `baseURL: "http://localhost:8081/v1"` [^2] |
+| `@ai-sdk/openai`            | ✅ Vercel AI SDK             | `baseURL: "..."` [^9]                      |
+| `@ai-sdk/openai-compatible` | ✅ Для кастомных провайдеров | `baseURL: "..."` [^9]                      |
 
 ## 8.3. CLI-инструменты
 
-| Инструмент | Поддержка | Настройка |
-| :-- | :-- | :-- |
-| OpenCode | ✅ | `baseURL` + `apiKey` + `models` [^9] |
-| Gemini CLI | ✅ (Google-native) | `GOOGLE_GEMINI_BASE_URL` [^1] |
-| Codex CLI | ✅ (Responses API) | `/v1/responses` [^1] |
+| Инструмент | Поддержка          | Настройка                            |
+| :--------- | :----------------- | :----------------------------------- |
+| OpenCode   | ✅                 | `baseURL` + `apiKey` + `models` [^9] |
+| Gemini CLI | ✅ (Google-native) | `GOOGLE_GEMINI_BASE_URL` [^1]        |
+| Codex CLI  | ✅ (Responses API) | `/v1/responses` [^1]                 |
 
-
-***
+---
 
 # 9. Что нужно проверить перед тем, как отдавать код другому ИИ-агенту
 
@@ -595,7 +584,7 @@ gemini
 7. **Google-native endpoints** (`/v1beta/models`) работают (для Gemini CLI)[^1]
 8. **Thinking depth** (`@think=N`) работает[^1]
 
-***
+---
 
 # 10. Что делать дальше (инструкция для другого ИИ-агента)
 
@@ -610,19 +599,18 @@ gemini
 9. **Оптимизировать retry логику** (сейчас 3 ретрая с 2 секундами задержки)[^1]
 10. **Добавить логирование** (сейчас `log_requests: true`)[^1]
 
-***
+---
 
 # 11. Критичные риски
 
-| Риск | Описание | Митигация |
-| :-- | :-- | :-- |
-| **Google ломает веб-протокол** | Gemini Web может изменить Internal API в любой момент [^1] | Хранить cookie, следить за обновлениями repo [^1] |
-| **Rate limiting** | Google throttle-ит частые запросы [^1] | Добавить rate limiter на клиенте |
-| **Cookie expiry** | Cookies могут истечь | Обновлять cookie вручную или автоматом |
-| **No official API** | Это reverse-engineered solution, не поддерживается Google [^1] | Быть готовым к постоянным багфиксам |
+| Риск                           | Описание                                                       | Митигация                                         |
+| :----------------------------- | :------------------------------------------------------------- | :------------------------------------------------ |
+| **Google ломает веб-протокол** | Gemini Web может изменить Internal API в любой момент [^1]     | Хранить cookie, следить за обновлениями repo [^1] |
+| **Rate limiting**              | Google throttle-ит частые запросы [^1]                         | Добавить rate limiter на клиенте                  |
+| **Cookie expiry**              | Cookies могут истечь                                           | Обновлять cookie вручную или автоматом            |
+| **No official API**            | Это reverse-engineered solution, не поддерживается Google [^1] | Быть готовым к постоянным багфиксам               |
 
-
-***
+---
 
 # 12. Вместо API ключа — что реально использовать
 
@@ -634,15 +622,13 @@ gemini
 
 **Что писать в клиентах:**
 
+| Поле       | Что писать                                                                 |
+| :--------- | :------------------------------------------------------------------------- |
+| `base_url` | `http://localhost:8081/v1` [^1]                                            |
+| `api_key`  | Любой из `api_keys` в `config.json` (или любой, если `api_keys` пуст) [^1] |
+| `model`    | `gemini-3.5-flash-thinking` и другие из списка [^1]                        |
 
-| Поле | Что писать |
-| :-- | :-- |
-| `base_url` | `http://localhost:8081/v1` [^1] |
-| `api_key` | Любой из `api_keys` в `config.json` (или любой, если `api_keys` пуст) [^1] |
-| `model` | `gemini-3.5-flash-thinking` и другие из списка [^1] |
-
-
-***
+---
 
 **Всё. Это вся информация, которая нужна другому ИИ-агенту, чтобы полностью переписать твой API-агрегатор под нормальный формат.**
 
@@ -714,4 +700,3 @@ gemini
 [^31]: https://developers.openai.com/api/docs/guides/function-calling
 
 [^32]: https://platform.openai.com/docs/guides/migrate-to-responses
-

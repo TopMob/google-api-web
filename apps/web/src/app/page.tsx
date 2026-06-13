@@ -52,7 +52,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<"playground" | "keys" | "logs" | "faq">("playground");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
-  
+
   // Upstream Connection state
   const [gatewayStatus, setGatewayStatus] = useState<"online" | "offline" | "checking">("checking");
   const [gatewayUrl, setGatewayUrl] = useState("http://127.0.0.1:8081");
@@ -78,7 +78,7 @@ export default function Home() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [recentLogs, setRecentLogs] = useState<UsageLog[]>([]);
-  
+
   const [newProjectName, setNewProjectName] = useState("");
   const [newKeyName, setNewKeyName] = useState("");
   const [newKeyProjectId, setNewKeyProjectId] = useState("00000000-0000-0000-0000-000000000000");
@@ -97,7 +97,9 @@ export default function Home() {
   const [cookieTestInput, setCookieTestInput] = useState("");
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [isTestingCookie, setIsTestingCookie] = useState(false);
-  const [activeProvider, setActiveProvider] = useState<"opencode" | "vscode" | "codex" | "codex_cli" | "openclaw" | "cursor" | "jetbrains" | "zed">("opencode");
+  const [activeProvider, setActiveProvider] = useState<
+    "opencode" | "vscode" | "codex" | "codex_cli" | "openclaw" | "cursor" | "jetbrains" | "zed"
+  >("opencode");
   const [activePlatform, setActivePlatform] = useState<"windows" | "macos" | "linux">("windows");
 
   // Timer Ref
@@ -152,7 +154,7 @@ export default function Home() {
       const statsRes = await fetch("/api/stats");
       if (statsRes.ok) {
         const statsData = await statsRes.json();
-        setStats(prev => ({
+        setStats((prev) => ({
           ...prev,
           requests: statsData.totalRequests,
           estimatedTokens: statsData.totalTokens,
@@ -172,9 +174,9 @@ export default function Home() {
     const interval = setInterval(() => {
       checkHealth();
       fetchDbData();
-      
+
       const diffMins = Math.floor((Date.now() - startTimeRef.current) / 60000);
-      setStats(prev => ({
+      setStats((prev) => ({
         ...prev,
         activeTime: `${diffMins}m`
       }));
@@ -207,7 +209,7 @@ export default function Home() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${cookieTestInput}`
+          Authorization: `Bearer ${cookieTestInput}`
         },
         body: JSON.stringify({
           model: selectedModel || "gemini-3.5-flash",
@@ -296,8 +298,8 @@ export default function Home() {
       const res = await fetch("/api/keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          name: newKeyName, 
+        body: JSON.stringify({
+          name: newKeyName,
           project_id: newKeyProjectId,
           expires_at: expiresAt
         })
@@ -331,26 +333,26 @@ export default function Home() {
 
     const userMsg: Message = { role: "user", content: input };
     const newMessages = [...messages, userMsg];
-    
+
     setMessages(newMessages);
     setInput("");
     setIsLoading(true);
 
     const assistantMsgIndex = newMessages.length;
-    setMessages(prev => [...prev, { role: "assistant", content: "" }]);
+    setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
 
     try {
       const res = await fetch("/api/v1/chat/completions", {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${playgroundKey}`
+          Authorization: `Bearer ${playgroundKey}`
         },
         body: JSON.stringify({
           model: selectedModel,
           messages: newMessages,
-          stream: true,
-        }),
+          stream: true
+        })
       });
 
       if (!res.ok) {
@@ -369,7 +371,7 @@ export default function Home() {
 
         const chunk = decoder.decode(value);
         const lines = chunk.split("\n");
-        
+
         for (const line of lines) {
           const trimmed = line.trim();
           if (trimmed.startsWith("data: ")) {
@@ -380,7 +382,7 @@ export default function Home() {
               const content = parsed.choices?.[0]?.delta?.content || "";
               if (content) {
                 accumulated += content;
-                setMessages(prev => {
+                setMessages((prev) => {
                   const next = [...prev];
                   if (next[assistantMsgIndex]) {
                     next[assistantMsgIndex] = {
@@ -397,9 +399,8 @@ export default function Home() {
       }
 
       fetchDbData();
-
     } catch {
-      setMessages(prev => {
+      setMessages((prev) => {
         const next = [...prev];
         if (next[assistantMsgIndex]) {
           next[assistantMsgIndex] = {
