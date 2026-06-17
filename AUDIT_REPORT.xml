@@ -1,0 +1,20 @@
+<audit_report>
+  <executive_summary>The repository implements an AI gateway for Gemini models. Overall code quality is decent, but there are critical security oversights regarding hardcoded secrets and AI agent prompt injection risks. The codebase relies heavily on manual parsing of LLM outputs which introduces fragility.</executive_summary>
+  <critical_security>
+    1. Hardcoded Admin Secret: In `apps/gateway/src/services/auth.ts`, there is a hardcoded fallback API key (`sk-personal-gw`). This creates a critical backdoor that grants rate-limit-bypassing admin access.
+    2. Prompt Injection & Unauthorized Tool Execution: In `apps/gateway/src/utils/parsers.ts`, the `parseToolCalls` function extracts tool invocations via simple regex matching (`/```(?:tool_call|json)?\s*([\s\S]*?)\s*```/g`). If a malicious user submits a prompt containing markdown block spoofing for `tool_call`, they may trigger unauthorized server-side tool execution, bypassing standard intent guardrails.
+  </critical_security>
+  <tech_debt_and_bugs>
+    1. Missing Proxy Support: Native `fetch` is used in `apps/gateway/src/utils/fetchWithRetry.ts` without custom dispatchers, causing timeout failures in restricted regions.
+    2. JSON Parsing Edge Cases: `cleanJsonResponse` attempts to automatically repair JSON but might silently corrupt nested structures or strip valid content if the LLM output is malformed.
+  </tech_debt_and_bugs>
+  <regional_latency_investigation>
+    <root_cause_analysis>The gateway directly connects to `gemini.google.com` (as seen in `apps/gateway/src/services/gemini.ts`), which is blocked or heavily throttled by ISPs in the Russian Federation (РФ). This causes the `fetchWithRetry` to stall and timeout, leading to extreme latency.</root_cause_analysis>
+    <pure_code_solution>In Node.js 18+, the native global `fetch` utilizes `undici` under the hood. You can configure a native proxy by importing `ProxyAgent` from `undici`. In `apps/gateway/src/utils/fetchWithRetry.ts`, instantiate `new ProxyAgent('http://your-proxy-url')` and pass it as the `dispatcher` property in the `fetch(url, { dispatcher: proxyAgent, ...options })` options. This locally routes all requests through the proxy without external integrations.</pure_code_solution>
+  </regional_latency_investigation>
+  <file_by_file_breakdown>
+    - `apps/gateway/src/services/auth.ts`, Line 45: `if (key === adminKey || key === "sk-personal-gw")` - Critical vulnerability: Hardcoded backdoor key.
+    - `apps/gateway/src/utils/parsers.ts`, Line 118: `const regex = /```(?:tool_call|json)?\s*([\s\S]*?)\s*```/g;` - High vulnerability: Susceptible to spoofed tool call injection.
+    - `apps/gateway/src/utils/fetchWithRetry.ts`, Line 33: `const response = await fetch(url, { ...options, signal: controller.signal });` - Bug: Lacks `dispatcher` for proxying, causing RU latency.
+  </file_by_file_breakdown>
+</audit_report>
