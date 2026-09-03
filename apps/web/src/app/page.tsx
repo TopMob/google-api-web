@@ -389,13 +389,29 @@ export default function Home() {
       }
 
       fetchDbData();
-    } catch {
+    } catch (err: any) {
+      let errMsg = "Failed to stream execution response from local gateway.";
+      if (err?.message) {
+        try {
+          const parsed = JSON.parse(err.message);
+          if (parsed?.error?.message) {
+            errMsg = parsed.error.message;
+          } else if (typeof parsed?.error === "string") {
+            errMsg = parsed.error;
+          } else {
+            errMsg = err.message;
+          }
+        } catch {
+          errMsg = err.message;
+        }
+      }
+
       setMessages((prev) => {
         const next = [...prev];
         if (next[assistantMsgIndex]) {
           next[assistantMsgIndex] = {
             role: "assistant",
-            content: "Error: Failed to stream execution response from local gateway."
+            content: `Error: ${errMsg}`
           };
         }
         return next;

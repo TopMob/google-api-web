@@ -47,6 +47,10 @@ export async function handleChatStream(
     let isCompleted = false;
 
     while (!isCompleted) {
+      if (signal?.aborted || reply.raw.writableEnded || !reply.raw.writable) {
+        break;
+      }
+
       const { done, value } = await reader.read();
       if (done) break;
 
@@ -97,7 +101,9 @@ export async function handleChatStream(
                       model: modelName,
                       choices: [{ index: 0, delta: { content: delta }, finish_reason: null }]
                     };
-                    reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
+                    if (reply.raw.writable && !reply.raw.writableEnded) {
+                      reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
+                    }
                     prevCleanedText = cleanedText;
                   }
 
@@ -119,16 +125,18 @@ export async function handleChatStream(
       reader.cancel();
     } catch {}
 
-    const finalChunk = {
-      id: cid,
-      object: "chat.completion.chunk",
-      created: Math.floor(Date.now() / 1000),
-      model: modelName,
-      choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
-    };
-    reply.raw.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
-    reply.raw.write("data: [DONE]\n\n");
-    reply.raw.end();
+    if (reply.raw.writable && !reply.raw.writableEnded) {
+      const finalChunk = {
+        id: cid,
+        object: "chat.completion.chunk",
+        created: Math.floor(Date.now() / 1000),
+        model: modelName,
+        choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
+      };
+      reply.raw.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
+      reply.raw.write("data: [DONE]\n\n");
+      reply.raw.end();
+    }
 
     const durationMs = Date.now() - startTime;
     await logUsage(
@@ -143,18 +151,20 @@ export async function handleChatStream(
   } catch (e: unknown) {
     logger.error({ err: e }, "Streaming error");
     const normalized = normalizeError(e);
-    const errChunk = {
-      id: cid,
-      object: "chat.completion.chunk",
-      created: Math.floor(Date.now() / 1000),
-      model: modelName,
-      choices: [
-        { index: 0, delta: { content: `[Gateway Error: ${normalized.body.error.message}]` }, finish_reason: "stop" }
-      ]
-    };
-    reply.raw.write(`data: ${JSON.stringify(errChunk)}\n\n`);
-    reply.raw.write("data: [DONE]\n\n");
-    reply.raw.end();
+    if (reply.raw.writable && !reply.raw.writableEnded) {
+      const errChunk = {
+        id: cid,
+        object: "chat.completion.chunk",
+        created: Math.floor(Date.now() / 1000),
+        model: modelName,
+        choices: [
+          { index: 0, delta: { content: `[Gateway Error: ${normalized.body.error.message}]` }, finish_reason: "stop" }
+        ]
+      };
+      reply.raw.write(`data: ${JSON.stringify(errChunk)}\n\n`);
+      reply.raw.write("data: [DONE]\n\n");
+      reply.raw.end();
+    }
 
     const durationMs = Date.now() - startTime;
     await logUsage(
@@ -204,6 +214,10 @@ export async function handleChatStreamWithTools(
     let isCompleted = false;
 
     while (!isCompleted) {
+      if (signal?.aborted || reply.raw.writableEnded || !reply.raw.writable) {
+        break;
+      }
+
       const { done, value } = await reader.read();
       if (done) break;
 
@@ -262,7 +276,7 @@ export async function handleChatStreamWithTools(
 
                     if (!toolSuspended) {
                       const delta = responseText.substring(streamedLength);
-                      if (delta) {
+                      if (delta && reply.raw.writable && !reply.raw.writableEnded) {
                         const chunk = {
                           id: cid,
                           object: "chat.completion.chunk",
@@ -296,56 +310,58 @@ export async function handleChatStreamWithTools(
 
     const { cleanText, toolCalls } = parseToolCalls(responseText);
 
-    if (cleanText.length > streamedLength) {
-      const delta = cleanText.substring(streamedLength);
-      const chunk = {
-        id: cid,
-        object: "chat.completion.chunk",
-        created: Math.floor(Date.now() / 1000),
-        model: modelName,
-        choices: [{ index: 0, delta: { content: delta }, finish_reason: null }]
-      };
-      reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
-    }
+    if (reply.raw.writable && !reply.raw.writableEnded) {
+      if (cleanText.length > streamedLength) {
+        const delta = cleanText.substring(streamedLength);
+        const chunk = {
+          id: cid,
+          object: "chat.completion.chunk",
+          created: Math.floor(Date.now() / 1000),
+          model: modelName,
+          choices: [{ index: 0, delta: { content: delta }, finish_reason: null }]
+        };
+        reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
+      }
 
-    if (toolCalls) {
-      const chunk = {
-        id: cid,
-        object: "chat.completion.chunk",
-        created: Math.floor(Date.now() / 1000),
-        model: modelName,
-        choices: [
-          {
-            index: 0,
-            delta: {
-              tool_calls: toolCalls.map((tc: ToolCallResult, idx: number) => ({
-                index: idx,
-                id: tc.id,
-                type: "function",
-                function: {
-                  name: tc.function.name,
-                  arguments: tc.function.arguments
-                }
-              }))
-            },
-            finish_reason: "tool_calls"
-          }
-        ]
-      };
-      reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
-    } else {
-      const chunk = {
-        id: cid,
-        object: "chat.completion.chunk",
-        created: Math.floor(Date.now() / 1000),
-        model: modelName,
-        choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
-      };
-      reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
-    }
+      if (toolCalls) {
+        const chunk = {
+          id: cid,
+          object: "chat.completion.chunk",
+          created: Math.floor(Date.now() / 1000),
+          model: modelName,
+          choices: [
+            {
+              index: 0,
+              delta: {
+                tool_calls: toolCalls.map((tc: ToolCallResult, idx: number) => ({
+                  index: idx,
+                  id: tc.id,
+                  type: "function",
+                  function: {
+                    name: tc.function.name,
+                    arguments: tc.function.arguments
+                  }
+                }))
+              },
+              finish_reason: "tool_calls"
+            }
+          ]
+        };
+        reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
+      } else {
+        const chunk = {
+          id: cid,
+          object: "chat.completion.chunk",
+          created: Math.floor(Date.now() / 1000),
+          model: modelName,
+          choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
+        };
+        reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
+      }
 
-    reply.raw.write("data: [DONE]\n\n");
-    reply.raw.end();
+      reply.raw.write("data: [DONE]\n\n");
+      reply.raw.end();
+    }
 
     const durationMs = Date.now() - startTime;
     await logUsage(
@@ -360,18 +376,20 @@ export async function handleChatStreamWithTools(
   } catch (e: unknown) {
     logger.error({ err: e }, "Streaming with tools error");
     const normalized = normalizeError(e);
-    const errChunk = {
-      id: cid,
-      object: "chat.completion.chunk",
-      created: Math.floor(Date.now() / 1000),
-      model: modelName,
-      choices: [
-        { index: 0, delta: { content: `[Gateway Error: ${normalized.body.error.message}]` }, finish_reason: "stop" }
-      ]
-    };
-    reply.raw.write(`data: ${JSON.stringify(errChunk)}\n\n`);
-    reply.raw.write("data: [DONE]\n\n");
-    reply.raw.end();
+    if (reply.raw.writable && !reply.raw.writableEnded) {
+      const errChunk = {
+        id: cid,
+        object: "chat.completion.chunk",
+        created: Math.floor(Date.now() / 1000),
+        model: modelName,
+        choices: [
+          { index: 0, delta: { content: `[Gateway Error: ${normalized.body.error.message}]` }, finish_reason: "stop" }
+        ]
+      };
+      reply.raw.write(`data: ${JSON.stringify(errChunk)}\n\n`);
+      reply.raw.write("data: [DONE]\n\n");
+      reply.raw.end();
+    }
 
     const durationMs = Date.now() - startTime;
     await logUsage(
