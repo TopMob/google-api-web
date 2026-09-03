@@ -9,41 +9,78 @@ export interface ModelConfig {
   desc: string;
 }
 
-// Universal baseline models (no hardcoded versions; populated dynamically from Google session)
+// Models matching Gemini Web chat interface
 const FALLBACK_MODELS: Record<string, ModelConfig> = {
-  "gemini-flash": {
+  "gemini-3.8-flash": {
     mode: 1,
     think: 4,
-    desc: "Gemini Flash — High-speed conversational model"
+    desc: "3.8 Flash — All-around help (Default chat model)"
   },
-  "gemini-pro": {
-    mode: 3,
-    think: 4,
-    desc: "Gemini Pro — Advanced reasoning model"
-  },
-  "gemini-thinking": {
+  "gemini-3.8-flash-thinking": {
     mode: 2,
     think: 0,
-    desc: "Gemini Thinking — Extended reasoning model"
+    desc: "3.8 Flash Thinking — Расширенные способности к размышлению"
+  },
+  "gemini-3.1-pro": {
+    mode: 3,
+    think: 4,
+    desc: "3.1 Pro — Расширенные возможности рассуждения"
+  },
+  "gemini-3.5-flash-lite": {
+    mode: 6,
+    think: 4,
+    desc: "3.5 Flash-Lite — Самые быстрые ответы"
   },
   "gemini-auto": {
     mode: 4,
     think: 4,
-    desc: "Gemini Auto — Automatic intelligent routing"
+    desc: "Gemini Auto — Автоматический выбор"
+  },
+  // Convenient aliases
+  "gemini-flash": {
+    mode: 1,
+    think: 4,
+    desc: "Gemini Flash (Points to 3.8 Flash)"
+  },
+  "gemini-pro": {
+    mode: 3,
+    think: 4,
+    desc: "Gemini Pro (Points to 3.1 Pro)"
+  },
+  "gemini-thinking": {
+    mode: 2,
+    think: 0,
+    desc: "Gemini Thinking (Points to 3.8 Flash Thinking)"
   }
 };
 
-// Known model name → mode mappings from Gemini's internal IDs
+// Known model name → mode mappings
 const KNOWN_MODE_MAP: Record<string, number> = {
+  "gemini-3.8-flash": 1,
+  "gemini-3.7-flash": 1,
   "gemini-flash": 1,
+
+  "gemini-3.8-flash-thinking": 2,
+  "gemini-3.7-flash-thinking": 2,
+  "gemini-flash-thinking": 2,
   "gemini-thinking": 2,
+
+  "gemini-3.1-pro": 3,
+  "gemini-3.7-pro": 3,
   "gemini-advanced": 3,
   "gemini-pro": 3,
+
+  "gemini-3.5-flash-lite": 6,
+  "gemini-flash-lite": 6,
+
   "gemini-auto": 4
 };
 
 // Thinking mode: 0 = extended thinking enabled, 4 = normal (no thinking)
 const THINKING_MODE_MAP: Record<string, number> = {
+  "gemini-3.8-flash-thinking": 0,
+  "gemini-3.7-flash-thinking": 0,
+  "gemini-flash-thinking": 0,
   "gemini-thinking": 0
 };
 
@@ -89,22 +126,9 @@ async function fetchModelsFromGemini(
           res.on("end", () => {
             const parsed = parseModelsFromHtml(html);
             if (parsed && Object.keys(parsed).length > 0) {
-              const liveModels = { ...parsed };
-              if (!liveModels["gemini-flash"]) {
-                liveModels["gemini-flash"] = { mode: 1, think: 4, desc: "Gemini Flash (Latest)" };
-              }
-              if (!liveModels["gemini-pro"]) {
-                liveModels["gemini-pro"] = { mode: 3, think: 4, desc: "Gemini Pro (Latest)" };
-              }
-              if (!liveModels["gemini-thinking"]) {
-                liveModels["gemini-thinking"] = { mode: 2, think: 0, desc: "Gemini Thinking (Latest)" };
-              }
-              if (!liveModels["gemini-auto"]) {
-                liveModels["gemini-auto"] = { mode: 4, think: 4, desc: "Gemini Auto Routing" };
-              }
-              resolve(liveModels);
+              resolve({ ...FALLBACK_MODELS, ...parsed });
             } else {
-              resolve(null);
+              resolve(FALLBACK_MODELS);
             }
           });
         }
@@ -112,16 +136,16 @@ async function fetchModelsFromGemini(
 
       req.on("timeout", () => {
         req.destroy();
-        resolve(null);
+        resolve(FALLBACK_MODELS);
       });
 
       req.on("error", () => {
-        resolve(null);
+        resolve(FALLBACK_MODELS);
       });
 
       req.end();
     } catch {
-      resolve(null);
+      resolve(FALLBACK_MODELS);
     }
   });
 }
@@ -136,8 +160,14 @@ function parseModelsFromHtml(html: string): Record<string, ModelConfig> | null {
 
     while ((match = modelNameRegex.exec(html)) !== null) {
       const name = match[1].toLowerCase();
-      // Skip non-conversational components and UI assets
+      // Skip non-conversational components, previews and legacy tokens
       if (
+        name.includes("-preview") ||
+        name.includes("-04-17") ||
+        name.includes("-05-20") ||
+        name.includes("-09-2025") ||
+        name.includes("2.0") ||
+        name.includes("2.5") ||
         name.includes("embedding") ||
         name.includes("test") ||
         name.includes("internal") ||

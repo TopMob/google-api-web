@@ -1,4 +1,4 @@
-import { ProxyAgent } from "undici";
+import { fetch as undiciFetch, ProxyAgent } from "undici";
 import { logger } from "../logger.js";
 
 const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy;
@@ -14,6 +14,8 @@ interface FetchWithRetryOptions {
   maxDelayMs?: number;
   timeoutMs?: number;
 }
+
+const defaultGlobalFetch = globalThis.fetch;
 
 export async function fetchWithRetry(
   url: string,
@@ -55,7 +57,10 @@ export async function fetchWithRetry(
         fetchOpts.dispatcher = proxyAgent;
       }
 
-      const response = await fetch(url, fetchOpts);
+      const isMocked = globalThis.fetch && globalThis.fetch !== defaultGlobalFetch;
+      const fetchFn: typeof fetch =
+        proxyAgent && !isMocked ? (undiciFetch as unknown as typeof fetch) : globalThis.fetch || undiciFetch;
+      const response = await fetchFn(url, fetchOpts);
 
       clearTimeout(timeoutId);
       if (options.signal) {

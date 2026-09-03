@@ -1,10 +1,11 @@
-import { ProxyAgent } from "undici";
+import { fetch as undiciFetch, ProxyAgent } from "undici";
 import { logger } from "../logger.js";
 const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy;
 const proxyAgent = proxyUrl ? new ProxyAgent(proxyUrl) : undefined;
 if (proxyAgent) {
   logger.info(`Configured HTTP proxy dispatcher for Gemini upstream requests: ${proxyUrl}`);
 }
+const defaultGlobalFetch = globalThis.fetch;
 export async function fetchWithRetry(url, options, retryOptions = {}) {
   const {
     maxRetries = 3,
@@ -35,7 +36,9 @@ export async function fetchWithRetry(url, options, retryOptions = {}) {
       if (proxyAgent) {
         fetchOpts.dispatcher = proxyAgent;
       }
-      const response = await fetch(url, fetchOpts);
+      const isMocked = globalThis.fetch && globalThis.fetch !== defaultGlobalFetch;
+      const fetchFn = proxyAgent && !isMocked ? undiciFetch : globalThis.fetch || undiciFetch;
+      const response = await fetchFn(url, fetchOpts);
       clearTimeout(timeoutId);
       if (options.signal) {
         options.signal.removeEventListener("abort", onAbort);
