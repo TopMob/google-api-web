@@ -57,14 +57,18 @@ export default function Home() {
   const [gatewayStatus, setGatewayStatus] = useState<"online" | "offline" | "checking">("checking");
   const [gatewayUrl, setGatewayUrl] = useState("http://127.0.0.1:8081");
   const [models, setModels] = useState<string[]>([
+    "gemini-3.7-flash",
+    "gemini-3.7-flash-thinking",
+    "gemini-3.7-pro",
     "gemini-3.5-flash",
     "gemini-3.5-flash-thinking",
-    "gemini-3.1-pro",
-    "gemini-auto",
     "gemini-3.5-flash-thinking-lite",
+    "gemini-3.1-pro",
+    "gemini-deep-research",
+    "gemini-auto",
     "gemini-flash-lite"
   ]);
-  const [selectedModel, setSelectedModel] = useState("gemini-3.5-flash");
+  const [selectedModel, setSelectedModel] = useState("gemini-3.7-flash");
 
   // Dashboard Stats state
   const [stats, setStats] = useState({
@@ -180,7 +184,7 @@ export default function Home() {
         ...prev,
         activeTime: `${diffMins}m`
       }));
-    }, 5000);
+    }, 30000);
 
     return () => clearInterval(interval);
   }, []);
@@ -199,51 +203,32 @@ export default function Home() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  // Action: Validate cookie credentials against gateway endpoints
+  // Action: Save cookie credentials and validate against gateway endpoints
   const handleTestCookie = async () => {
     if (!cookieTestInput.trim()) return;
     setIsTestingCookie(true);
     setTestResult(null);
     try {
-      const res = await fetch("/api/v1/chat/completions", {
+      const res = await fetch("/api/cookies/save", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${cookieTestInput}`
-        },
-        body: JSON.stringify({
-          model: selectedModel || "gemini-3.5-flash",
-          messages: [{ role: "user", content: "Привет. Ответь ровно одним словом 'OK'" }],
-          max_tokens: 5
-        })
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cookie: cookieTestInput })
       });
 
       const data = await res.json();
 
-      if (res.ok) {
+      if (res.ok && data.success) {
         setTestResult({
           success: true,
-          message: "Cookie string validated! Gateway connection with Google Gemini confirmed."
+          message: data.message || "Cookie saved to cookie.txt & verified with Google Gemini!"
         });
+        // Dynamically refresh models list now that fresh cookies are active
+        fetchModels();
+        checkHealth();
       } else {
-        let errMsg = "Validation failed. Inspect the copied cookie credentials.";
-        if (data.error) {
-          try {
-            const parsedError = JSON.parse(data.error);
-            if (parsedError.error?.message) {
-              errMsg = parsedError.error.message;
-            } else if (parsedError.message) {
-              errMsg = parsedError.message;
-            } else {
-              errMsg = data.error;
-            }
-          } catch {
-            errMsg = data.error.message || data.error;
-          }
-        }
         setTestResult({
           success: false,
-          message: errMsg
+          message: data.message || "Validation failed. Inspect the copied cookie credentials."
         });
       }
     } catch (err: any) {
@@ -365,7 +350,8 @@ export default function Home() {
       const decoder = new TextDecoder();
       let accumulated = "";
 
-      while (true) {
+      let streamEnded = false;
+      while (!streamEnded) {
         const { done, value } = await reader.read();
         if (done) break;
 
@@ -376,7 +362,11 @@ export default function Home() {
           const trimmed = line.trim();
           if (trimmed.startsWith("data: ")) {
             const dataStr = trimmed.slice(6).trim();
-            if (dataStr === "[DONE]") continue;
+            if (dataStr === "[DONE]") {
+              streamEnded = true;
+              setIsLoading(false);
+              break;
+            }
             try {
               const parsed = JSON.parse(dataStr);
               const content = parsed.choices?.[0]?.delta?.content || "";

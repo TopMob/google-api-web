@@ -1,30 +1,12 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-const supabase = createClient(supabaseUrl, supabaseKey);
+const gatewayUrl = () => process.env.GATEWAY_URL || "http://127.0.0.1:8081";
 
 export async function GET() {
   try {
-    const { data: logs, error: logsError } = await supabase
-      .from("usage_logs")
-      .select("*, projects(name), api_keys(name)")
-      .order("created_at", { ascending: false });
-
-    if (logsError) throw logsError;
-
-    const totalRequests = logs.length;
-    const totalTokens = logs.reduce((acc, curr) => acc + (curr.total_tokens || 0), 0);
-    const successful = logs.filter((l) => l.status_code >= 200 && l.status_code < 300).length;
-    const successRate = totalRequests > 0 ? Math.round((successful / totalRequests) * 100) : 100;
-
-    return NextResponse.json({
-      totalRequests,
-      totalTokens,
-      successRate,
-      recentLogs: logs.slice(0, 10)
-    });
+    const res = await fetch(`${gatewayUrl()}/api/stats`, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) throw new Error(`Gateway error: ${res.status}`);
+    return NextResponse.json(await res.json());
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

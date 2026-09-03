@@ -1,6 +1,3 @@
-import { redis } from "../db.js";
-import { logger } from "../logger.js";
-
 const memoryRateLimits = new Map<string, { window: number; count: number }>();
 
 export function checkInMemoryRateLimit(key: string, limitRpm: number): boolean {
@@ -24,22 +21,5 @@ export function checkInMemoryRateLimit(key: string, limitRpm: number): boolean {
 
 export async function checkRateLimit(key: string, limitRpm: number): Promise<boolean> {
   if (!limitRpm || limitRpm <= 0) return true;
-  const now = Math.floor(Date.now() / 1000);
-  const minuteWindow = Math.floor(now / 60);
-  const redisKey = `rate:${key}:${minuteWindow}`;
-
-  if (redis) {
-    try {
-      const count = await redis.incr(redisKey);
-      if (count === 1) {
-        await redis.expire(redisKey, 60);
-      }
-      return count <= limitRpm;
-    } catch (e) {
-      logger.error({ err: e }, "Redis rate limiter error, falling back to memory rate limiter");
-      return checkInMemoryRateLimit(key, limitRpm);
-    }
-  } else {
-    return checkInMemoryRateLimit(key, limitRpm);
-  }
+  return checkInMemoryRateLimit(key, limitRpm);
 }

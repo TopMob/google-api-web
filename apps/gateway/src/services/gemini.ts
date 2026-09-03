@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 import { config, GEMINI_BL, AUTH_USER, RETRY_ATTEMPTS, RETRY_DELAY_SEC } from "../config.js";
-import { loadCookie, makeSapisidHash } from "../utils/cookie.js";
+import { loadCookie, makeSapisidHash, parseRawCookieString, getGeminiSessionInfo } from "../utils/cookie.js";
+import { fetchWithRetry } from "../utils/fetchWithRetry.js";
 
 class GeminiPayloadBuilder {
   private payload: any[] = [];
@@ -47,7 +48,6 @@ class GeminiPayloadBuilder {
   }
 
   build() {
-    // Pad to ensure at least 80 elements, as Google's backend often expects a specific length
     while (this.payload.length < 80) {
       this.payload.push(null);
     }
@@ -55,12 +55,30 @@ class GeminiPayloadBuilder {
   }
 }
 
-export function buildGeminiRequest(
+export async function buildGeminiRequest(
   prompt: string,
   modelId: number,
   thinkMode: number,
   customCookie?: string
-): { url: string; headers: Record<string, string>; body: string } {
+): Promise<{ url: string; headers: Record<string, string>; body: string }> {
+  let cookieStr = "";
+  let sapisid: string | null = null;
+
+  if (customCookie) {
+    const parsed = parseRawCookieString(customCookie);
+    cookieStr = parsed.cookieStr;
+    sapisid = parsed.sapisid;
+  } else {
+    const loaded = loadCookie();
+    cookieStr = loaded.cookieStr;
+    sapisid = loaded.sapisid;
+  }
+
+  // Get dynamic build label and SNlM0e token
+  const sessionInfo = await getGeminiSessionInfo(cookieStr, sapisid);
+  const bl = sessionInfo.bl || GEMINI_BL;
+  const sn = sessionInfo.sn;
+
   const payloadStr = new GeminiPayloadBuilder()
     .setPrompt(prompt)
     .setLanguage("en")
@@ -73,13 +91,16 @@ export function buildGeminiRequest(
 
   const bodyParams = new URLSearchParams();
   bodyParams.append("f.req", payloadStr);
+  if (sn) {
+    bodyParams.append("at", sn);
+  }
 
   const reqid = Math.floor(Date.now() / 1000) % 1000000;
   const prefix = AUTH_USER ? `/u/${AUTH_USER}` : "";
-  const url = `https://gemini.google.com${prefix}/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate?bl=${GEMINI_BL}&hl=en&_reqid=${reqid}&rt=c`;
+  const url = `https://gemini.google.com${prefix}/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate?bl=${bl}&hl=en&_reqid=${reqid}&rt=c`;
 
   const headers: Record<string, string> = {
-    "Content-Type": "application/x-www-form-urlencoded",
+    "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
     Origin: "https://gemini.google.com",
     Referer: `https://gemini.google.com${prefix}/app`,
     "X-Same-Domain": "1",
@@ -89,30 +110,6 @@ export function buildGeminiRequest(
 
   if (AUTH_USER) {
     headers["X-Goog-AuthUser"] = String(AUTH_USER);
-  }
-
-  let cookieStr = "";
-  let sapisid: string | null = null;
-
-  if (customCookie) {
-    const trimmed = customCookie.trim();
-    if (trimmed.startsWith("{")) {
-      try {
-        const data = JSON.parse(trimmed);
-        cookieStr = data.cookie || "";
-        sapisid = data.sapisid || cookieStr.match(/SAPISID=([^;]+)/)?.[1] || null;
-      } catch {
-        cookieStr = trimmed;
-        sapisid = trimmed.match(/SAPISID=([^;]+)/)?.[1] || null;
-      }
-    } else {
-      cookieStr = trimmed;
-      sapisid = trimmed.match(/SAPISID=([^;]+)/)?.[1] || null;
-    }
-  } else {
-    const loaded = loadCookie();
-    cookieStr = loaded.cookieStr;
-    sapisid = loaded.sapisid;
   }
 
   if (cookieStr) {
@@ -125,8 +122,6 @@ export function buildGeminiRequest(
   return { url, headers, body: bodyParams.toString() };
 }
 
-import { fetchWithRetry } from "../utils/fetchWithRetry.js";
-
 export async function geminiStreamGenerate(
   prompt: string,
   modelId: number,
@@ -134,7 +129,7 @@ export async function geminiStreamGenerate(
   customCookie?: string,
   signal?: AbortSignal
 ): Promise<string> {
-  const { url, headers, body } = buildGeminiRequest(prompt, modelId, thinkMode, customCookie);
+  const { url, headers, body } = await buildGeminiRequest(prompt, modelId, thinkMode, customCookie);
 
   const response = await fetchWithRetry(
     url,
@@ -147,5 +142,59 @@ export async function geminiStreamGenerate(
     },
     { maxRetries: RETRY_ATTEMPTS }
   );
-  return await response.text();
+
+  const reader = response.body?.getReader();
+  if (!reader) {
+    return await response.text();
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let fullOutput = "";
+  let isCompleted = false;
+
+  while (!isCompleted) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    const textChunk = decoder.decode(value, { stream: true });
+    fullOutput += textChunk;
+    buffer += textChunk;
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      if (line.includes('["di",') || line.includes('["e",') || line.includes('"af.httprm"')) {
+        isCompleted = true;
+        break;
+      }
+      if (line.includes('"wrb.fr"') && line.length > 50) {
+        try {
+          const innerStr = JSON.parse(line)[0][2];
+          if (innerStr) {
+            const inner = JSON.parse(innerStr);
+            const candidates = [inner[4], inner[0]].filter(Boolean);
+            for (const candidate of candidates) {
+              if (Array.isArray(candidate)) {
+                for (const part of candidate) {
+                  if (Array.isArray(part) && Array.isArray(part[8]) && part[8].includes(2)) {
+                    isCompleted = true;
+                    break;
+                  }
+                }
+              }
+              if (isCompleted) break;
+            }
+          }
+        } catch {}
+      }
+      if (isCompleted) break;
+    }
+  }
+
+  try {
+    reader.cancel();
+  } catch {}
+
+  return fullOutput;
 }

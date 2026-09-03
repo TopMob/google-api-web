@@ -1,38 +1,332 @@
+import https from "https";
+import { loadCookie, makeSapisidHash } from "./cookie.js";
+import { AUTH_USER } from "../config.js";
+import { logger } from "../logger.js";
+
 export interface ModelConfig {
   mode: number;
   think: number;
   desc: string;
 }
 
-export const MODELS: Record<string, ModelConfig> = {
+// Modern Gemini 3.x Models Lineup
+const FALLBACK_MODELS: Record<string, ModelConfig> = {
+  // ── Gemini 3.7 Series (Latest Generation) ─────────────────────────
+  "gemini-3.7-flash": {
+    mode: 1,
+    think: 4,
+    desc: "Gemini 3.7 Flash — High performance hybrid reasoning model"
+  },
+  "gemini-3.7-flash-thinking": {
+    mode: 2,
+    think: 0,
+    desc: "Gemini 3.7 Flash Thinking — Dynamic reasoning with extended depth"
+  },
+  "gemini-3.7-pro": {
+    mode: 3,
+    think: 4,
+    desc: "Gemini 3.7 Pro — Flagship professional intelligence"
+  },
+
+  // ── Gemini 3.5 Series ────────────────────────────────────────────
   "gemini-3.5-flash": {
     mode: 1,
     think: 4,
-    desc: "Fast general-purpose model"
+    desc: "Gemini 3.5 Flash — Fast general-purpose conversational model"
   },
   "gemini-3.5-flash-thinking": {
     mode: 2,
     think: 0,
-    desc: "Deep thinking mode, longest output (~20k chars)"
-  },
-  "gemini-3.1-pro": {
-    mode: 3,
-    think: 4,
-    desc: "Pro model (requires cookie for real routing)"
-  },
-  "gemini-auto": {
-    mode: 4,
-    think: 4,
-    desc: "Auto model selection"
+    desc: "Gemini 3.5 Flash Thinking — Deep thinking mode (~20k output tokens)"
   },
   "gemini-3.5-flash-thinking-lite": {
     mode: 5,
     think: 0,
-    desc: "Dynamic thinking with adaptive depth"
+    desc: "Gemini 3.5 Flash Thinking Lite — Adaptive depth thinking"
+  },
+
+  // ── Gemini 3.1 & Pro Series ──────────────────────────────────────
+  "gemini-3.1-pro": {
+    mode: 3,
+    think: 4,
+    desc: "Gemini 3.1 Pro — High complexity reasoning"
+  },
+  "gemini-deep-research": {
+    mode: 3,
+    think: 0,
+    desc: "Gemini Deep Research — Autonomous multi-step analysis"
+  },
+
+  // ── Auto & Utilities ─────────────────────────────────────────────
+  "gemini-auto": {
+    mode: 4,
+    think: 4,
+    desc: "Gemini Auto — Automatic intelligent routing"
   },
   "gemini-flash-lite": {
     mode: 6,
     think: 4,
-    desc: "Lightweight fast model"
+    desc: "Gemini Flash Lite — Instant response latency"
   }
 };
+
+// Known model name → mode mappings from Gemini's internal IDs
+const KNOWN_MODE_MAP: Record<string, number> = {
+  // Mode 1 = Flash models
+  "gemini-3.7-flash": 1,
+  "gemini-3.5-flash": 1,
+  "gemini-2.5-flash": 1,
+  "gemini-2.0-flash": 1,
+  "gemini-flash": 1,
+
+  // Mode 2 = Flash Thinking models (deep thinking)
+  "gemini-3.7-flash-thinking": 2,
+  "gemini-3.5-flash-thinking": 2,
+  "gemini-2.5-flash-thinking": 2,
+  "gemini-2.0-flash-thinking": 2,
+  "gemini-flash-thinking": 2,
+
+  // Mode 3 = Pro models (advanced reasoning)
+  "gemini-3.7-pro": 3,
+  "gemini-3.1-pro": 3,
+  "gemini-2.5-pro": 3,
+  "gemini-2.0-pro": 3,
+  "gemini-deep-research": 3,
+  "gemini-advanced": 3,
+  "gemini-pro": 3,
+
+  // Mode 4 = Auto selection
+  "gemini-auto": 4,
+
+  // Mode 5 = Thinking lite
+  "gemini-3.5-flash-thinking-lite": 5,
+  "gemini-3.7-flash-thinking-lite": 5,
+  "gemini-2.5-flash-thinking-lite": 5,
+  "gemini-flash-thinking-lite": 5,
+
+  // Mode 6 = Flash lite
+  "gemini-flash-lite": 6,
+  "gemini-2.0-flash-lite": 6
+};
+
+// Thinking mode: 0 = extended thinking enabled, 4 = normal (no thinking)
+const THINKING_MODE_MAP: Record<string, number> = {
+  "gemini-3.7-flash-thinking": 0,
+  "gemini-3.5-flash-thinking": 0,
+  "gemini-3.5-flash-thinking-lite": 0,
+  "gemini-3.7-flash-thinking-lite": 0,
+  "gemini-deep-research": 0,
+  "gemini-flash-thinking": 0
+};
+
+let cachedModels: Record<string, ModelConfig> | null = null;
+let cacheTimestamp = 0;
+const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+let refreshTimer: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Fetch available models directly from live Gemini page.
+ */
+async function fetchModelsFromGemini(
+  cookieStr: string,
+  sapisid: string | null
+): Promise<Record<string, ModelConfig> | null> {
+  return new Promise((resolve) => {
+    try {
+      const prefix = AUTH_USER ? `/u/${AUTH_USER}` : "";
+      const headers: Record<string, string> = {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        Cookie: cookieStr,
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9"
+      };
+      if (sapisid) {
+        headers["Authorization"] = makeSapisidHash(sapisid);
+      }
+
+      const req = https.request(
+        {
+          hostname: "gemini.google.com",
+          port: 443,
+          path: `${prefix}/app`,
+          method: "GET",
+          headers,
+          maxHeaderSize: 65536
+        },
+        (res) => {
+          let html = "";
+          res.on("data", (chunk) => (html += chunk));
+          res.on("end", () => {
+            const parsed = parseModelsFromHtml(html);
+            if (parsed && Object.keys(parsed).length > 0) {
+              resolve({ ...FALLBACK_MODELS, ...parsed });
+            } else {
+              resolve(null);
+            }
+          });
+        }
+      );
+
+      req.on("error", () => {
+        resolve(null);
+      });
+
+      req.end();
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+function parseModelsFromHtml(html: string): Record<string, ModelConfig> | null {
+  const models: Record<string, ModelConfig> = {};
+
+  try {
+    const modelNameRegex = /["'](?:models\/)?(gemini-[\w.-]+)["']/gi;
+    const foundModelNames = new Set<string>();
+    let match;
+
+    while ((match = modelNameRegex.exec(html)) !== null) {
+      const name = match[1].toLowerCase();
+      if (
+        name.includes("embedding") ||
+        name.includes("test") ||
+        (name.includes("exp-") && !name.includes("thinking") && !name.includes("pro-exp")) ||
+        name.includes("internal") ||
+        name.includes("vision") ||
+        name.includes("imagen") ||
+        name.includes("grounding") ||
+        name.includes("1.5") ||
+        name.includes("2.0")
+      ) {
+        continue;
+      }
+      foundModelNames.add(name);
+    }
+
+    if (foundModelNames.size === 0) {
+      return null;
+    }
+
+    for (const name of foundModelNames) {
+      const mode = KNOWN_MODE_MAP[name] || guessMode(name);
+      const think = THINKING_MODE_MAP[name] ?? (name.includes("thinking") ? 0 : 4);
+      const desc = generateDescription(name);
+
+      models[name] = { mode, think, desc };
+    }
+
+    return Object.keys(models).length > 0 ? models : null;
+  } catch {
+    return null;
+  }
+}
+
+export function guessMode(name: string): number {
+  const lower = name.toLowerCase();
+  if (lower.includes("pro") || lower.includes("advanced") || lower.includes("research")) return 3;
+  if (lower.includes("thinking-lite")) return 5;
+  if (lower.includes("thinking")) return 2;
+  if (lower.includes("flash-lite") || lower.includes("lite")) return 6;
+  if (lower.includes("auto")) return 4;
+  return 1;
+}
+
+function generateDescription(name: string): string {
+  const lower = name.toLowerCase();
+  if (lower.includes("3.7")) {
+    if (lower.includes("thinking")) return "Gemini 3.7 Flash Thinking — Dynamic hybrid reasoning";
+    if (lower.includes("pro")) return "Gemini 3.7 Pro — Flagship professional intelligence";
+    return "Gemini 3.7 Flash — High performance hybrid reasoning";
+  }
+  if (lower.includes("thinking")) return "Gemini Thinking model with deep chain-of-thought";
+  if (lower.includes("pro")) return "Gemini Pro flagship reasoning model";
+  if (lower.includes("flash-lite")) return "Gemini lightweight fast model";
+  if (lower.includes("auto")) return "Gemini auto intelligent model selection";
+  if (lower.includes("flash")) return "Gemini fast model";
+  return "Google Gemini Model";
+}
+
+export function resolveModelConfig(rawModelName: string): { config: ModelConfig; cleanModelName: string } {
+  let modelName = rawModelName.trim();
+  let thinkOverride: number | null = null;
+
+  if (modelName.includes("@think=")) {
+    const parts = modelName.split("@think=");
+    modelName = parts[0];
+    const val = parseInt(parts[1], 10);
+    if (!isNaN(val)) {
+      thinkOverride = val;
+    }
+  }
+
+  const allModels = getModels();
+  let baseConfig = allModels[modelName];
+
+  if (!baseConfig) {
+    const mode = KNOWN_MODE_MAP[modelName] || guessMode(modelName);
+    const think = THINKING_MODE_MAP[modelName] ?? (modelName.includes("thinking") ? 0 : 4);
+    baseConfig = {
+      mode,
+      think,
+      desc: generateDescription(modelName)
+    };
+  }
+
+  const finalConfig: ModelConfig = {
+    ...baseConfig,
+    think: thinkOverride !== null ? thinkOverride : baseConfig.think
+  };
+
+  return { config: finalConfig, cleanModelName: modelName };
+}
+
+export async function refreshModels(): Promise<void> {
+  const { cookieStr, sapisid } = loadCookie();
+  if (!cookieStr) {
+    cachedModels = { ...FALLBACK_MODELS };
+    cacheTimestamp = Date.now();
+    return;
+  }
+
+  const fetched = await fetchModelsFromGemini(cookieStr, sapisid);
+  if (fetched) {
+    cachedModels = fetched;
+    cacheTimestamp = Date.now();
+    logger.info(`Loaded ${Object.keys(fetched).length} models from live session: ${Object.keys(fetched).join(", ")}`);
+  } else {
+    if (!cachedModels) {
+      cachedModels = { ...FALLBACK_MODELS };
+    }
+    cacheTimestamp = Date.now();
+  }
+}
+
+export function getModels(): Record<string, ModelConfig> {
+  if (!cachedModels) {
+    return { ...FALLBACK_MODELS };
+  }
+
+  if (Date.now() - cacheTimestamp > CACHE_TTL_MS) {
+    refreshModels().catch(() => {});
+  }
+
+  return cachedModels;
+}
+
+export function startModelRefreshTimer() {
+  if (refreshTimer) return;
+  refreshTimer = setInterval(() => {
+    refreshModels().catch(() => {});
+  }, CACHE_TTL_MS);
+}
+
+export function stopModelRefreshTimer() {
+  if (refreshTimer) {
+    clearInterval(refreshTimer);
+    refreshTimer = null;
+  }
+}
+
+export const MODELS = FALLBACK_MODELS;

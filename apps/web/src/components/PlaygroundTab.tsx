@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Send, Bot, User, Sparkles } from "lucide-react";
 
 interface Message {
@@ -26,6 +26,11 @@ export default function PlaygroundTab({
   gatewayStatus
 }: PlaygroundTabProps) {
   const chatBottomRef = useRef<HTMLDivElement>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -58,62 +63,30 @@ export default function PlaygroundTab({
                   key={idx}
                   className={`flex flex-col space-y-1.5 border-t border-zinc-900 pt-4 first:border-0 first:pt-0`}
                 >
-                  {/* Header Row */}
-                  <div className="flex items-center gap-2 select-none">
-                    {isUser ? (
-                      <>
-                        <User size={12} className="text-cyan-400" />
-                        <span className="text-[10px] font-mono font-bold text-cyan-400 uppercase tracking-wider">
-                          [User_Shell]
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <Bot size={12} className="text-emerald-400" />
-                        <span className="text-[10px] font-mono font-bold text-emerald-400 uppercase tracking-wider">
-                          [Gemini_Response]
-                        </span>
-                      </>
-                    )}
+                  <div className="flex items-center gap-2">
+                    <div
+                      className={`p-1 rounded ${
+                        isUser ? "bg-zinc-800 text-zinc-300" : "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20"
+                      }`}
+                    >
+                      {isUser ? <User size={12} /> : <Bot size={12} />}
+                    </div>
+                    <span className="text-[10px] font-mono uppercase tracking-wider font-bold text-zinc-400">
+                      {isUser ? "User Client" : "Gemini Web2API"}
+                    </span>
                   </div>
-
-                  {/* Message Content */}
-                  <div
-                    className={`rounded border p-4 text-[11px] leading-relaxed font-mono ${
-                      isUser
-                        ? "bg-[#0b0c0e]/60 border-zinc-850 text-zinc-200"
-                        : "bg-[#0c0d10] border-zinc-800 text-zinc-100 shadow-[inset_0_1px_3px_rgba(0,0,0,0.2)]"
-                    }`}
-                  >
-                    <div className="whitespace-pre-wrap select-text">{msg.content}</div>
+                  <div className="pl-6 text-xs leading-relaxed text-zinc-200 font-mono whitespace-pre-wrap select-text">
+                    {msg.content}
                   </div>
                 </div>
               );
             })}
 
-            {/* Loading Indicator */}
-            {isLoading && messages[messages.length - 1]?.role === "user" && (
-              <div className="flex flex-col space-y-1.5 border-t border-zinc-900 pt-4">
-                <div className="flex items-center gap-2 select-none">
-                  <Bot size={12} className="text-zinc-500" />
-                  <span className="text-[10px] font-mono font-bold text-zinc-500 uppercase tracking-wider">
-                    [Awaiting_Stream]
-                  </span>
-                </div>
-                <div className="rounded border border-dashed border-zinc-800 bg-[#08090b] p-4 flex items-center gap-2">
-                  <span
-                    className="h-1.5 w-1.5 bg-cyan-400 rounded-full animate-bounce"
-                    style={{ animationDelay: "0ms" }}
-                  />
-                  <span
-                    className="h-1.5 w-1.5 bg-cyan-400 rounded-full animate-bounce"
-                    style={{ animationDelay: "150ms" }}
-                  />
-                  <span
-                    className="h-1.5 w-1.5 bg-cyan-400 rounded-full animate-bounce"
-                    style={{ animationDelay: "300ms" }}
-                  />
-                </div>
+            {isLoading && (
+              <div className="flex items-center gap-2 pl-6 pt-2">
+                <span className="h-1.5 w-1.5 bg-cyan-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                <span className="h-1.5 w-1.5 bg-cyan-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                <span className="h-1.5 w-1.5 bg-cyan-400 rounded-full animate-bounce" />
               </div>
             )}
           </div>
@@ -134,16 +107,18 @@ export default function PlaygroundTab({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder={
-                gatewayStatus === "online"
+                !mounted || gatewayStatus === "online"
                   ? "Enter query to pass upstream..."
                   : "Gateway offline. Awaiting node link..."
               }
-              disabled={isLoading || gatewayStatus !== "online"}
+              disabled={!mounted ? false : isLoading || gatewayStatus !== "online"}
+              suppressHydrationWarning
               className="flex-grow bg-transparent border-0 outline-none text-xs font-mono px-3 py-2 text-zinc-200 placeholder-zinc-600 disabled:opacity-40"
             />
             <button
               type="submit"
-              disabled={isLoading || !input.trim() || gatewayStatus !== "online"}
+              disabled={!mounted ? false : isLoading || !input.trim() || gatewayStatus !== "online"}
+              suppressHydrationWarning
               className="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/20 hover:border-cyan-500/40 rounded px-4 py-2 text-xs font-mono transition duration-150 disabled:opacity-20 shrink-0"
             >
               <div className="flex items-center gap-1.5">

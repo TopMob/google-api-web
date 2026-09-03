@@ -79,8 +79,8 @@ export default function FaqTab({
             npm: "@ai-sdk/openai-compatible",
             name: "Gemini Web2API",
             options: {
-              baseURL: "https://gatewayapi-production-22ba.up.railway.app/v1",
-              apiKey: "sk-personal-gw"
+              baseURL: apiBaseUrl,
+              apiKey: activeKey
             },
             models: modelsObj
           }
@@ -602,36 +602,41 @@ models = [${modelsList}]`;
                   </thead>
                   <tbody className="divide-y divide-zinc-900">
                     <tr className="hover:bg-[#0e0f13]/40 transition">
-                      <td className="py-2.5 font-bold text-cyan-400 select-all">gemini-3.5-flash-thinking</td>
+                      <td className="py-2.5 font-bold text-cyan-400 select-all">gemini-2.0-flash</td>
+                      <td className="py-2.5 px-4 text-zinc-400 font-semibold">Fast (Default)</td>
+                      <td className="py-2.5 text-zinc-400">Official fast multimodal model with next-gen speed</td>
+                    </tr>
+                    <tr className="hover:bg-[#0e0f13]/40 transition">
+                      <td className="py-2.5 font-bold text-cyan-400 select-all">gemini-2.0-flash-thinking-exp</td>
                       <td className="py-2.5 px-4 text-zinc-400 font-semibold">~20k chars</td>
-                      <td className="py-2.5 text-zinc-400">Deep thinking, code composition, complex reasoning</td>
+                      <td className="py-2.5 text-zinc-400">Advanced reasoning & extended thinking mode</td>
                     </tr>
                     <tr className="hover:bg-[#0e0f13]/40 transition">
-                      <td className="py-2.5 font-bold text-cyan-400 select-all">gemini-3.5-flash</td>
-                      <td className="py-2.5 px-4 text-zinc-400 font-semibold">~12k chars</td>
-                      <td className="py-2.5 text-zinc-400">Fast general-purpose responses, conversational chat</td>
-                    </tr>
-                    <tr className="hover:bg-[#0e0f13]/40 transition">
-                      <td className="py-2.5 font-bold text-cyan-400 select-all">gemini-3.5-flash-thinking-lite</td>
-                      <td className="py-2.5 px-4 text-zinc-400 font-semibold">~15k chars</td>
-                      <td className="py-2.5 text-zinc-400">Balanced depth and speed for general assistance</td>
-                    </tr>
-                    <tr className="hover:bg-[#0e0f13]/40 transition">
-                      <td className="py-2.5 font-bold text-cyan-400 select-all">gemini-3.1-pro</td>
-                      <td className="py-2.5 px-4 text-zinc-400 font-semibold">~12k chars</td>
+                      <td className="py-2.5 font-bold text-cyan-400 select-all">gemini-2.0-pro-exp-02-05</td>
+                      <td className="py-2.5 px-4 text-zinc-400 font-semibold">Flagship</td>
                       <td className="py-2.5 text-zinc-400">
-                        Pro features (requires loaded session cookies in gateway env)
+                        Top-tier coding, complex reasoning & benchmark performance
                       </td>
                     </tr>
                     <tr className="hover:bg-[#0e0f13]/40 transition">
-                      <td className="py-2.5 font-bold text-cyan-400 select-all">gemini-auto</td>
-                      <td className="py-2.5 px-4 text-zinc-400 font-semibold">Varies</td>
-                      <td className="py-2.5 text-zinc-400">Automatic routing based on prompt size and type</td>
+                      <td className="py-2.5 font-bold text-cyan-400 select-all">gemini-2.0-flash-lite</td>
+                      <td className="py-2.5 px-4 text-zinc-400 font-semibold">Ultra-fast</td>
+                      <td className="py-2.5 text-zinc-400">Lowest latency, high throughput</td>
                     </tr>
                     <tr className="hover:bg-[#0e0f13]/40 transition">
-                      <td className="py-2.5 font-bold text-cyan-400 select-all">gemini-flash-lite</td>
-                      <td className="py-2.5 px-4 text-zinc-400 font-semibold">~10k chars</td>
-                      <td className="py-2.5 text-zinc-400">Lightweight, ultra-fast latency</td>
+                      <td className="py-2.5 font-bold text-cyan-400 select-all">gemini-1.5-pro</td>
+                      <td className="py-2.5 px-4 text-zinc-400 font-semibold">2M Context</td>
+                      <td className="py-2.5 text-zinc-400">Deep context reasoning and document analysis</td>
+                    </tr>
+                    <tr className="hover:bg-[#0e0f13]/40 transition">
+                      <td className="py-2.5 font-bold text-cyan-400 select-all">gemini-1.5-flash</td>
+                      <td className="py-2.5 px-4 text-zinc-400 font-semibold">1M Context</td>
+                      <td className="py-2.5 text-zinc-400">Proven lightweight multimodal generation</td>
+                    </tr>
+                    <tr className="hover:bg-[#0e0f13]/40 transition">
+                      <td className="py-2.5 font-bold text-cyan-400 select-all">gemini-auto</td>
+                      <td className="py-2.5 px-4 text-zinc-400 font-semibold">Auto</td>
+                      <td className="py-2.5 text-zinc-400">Automatic routing based on prompt size and type</td>
                     </tr>
                   </tbody>
                 </table>
@@ -642,15 +647,14 @@ models = [${modelsList}]`;
                   [Deep Thinking Depth Control]
                 </span>
                 <p className="text-zinc-400 leading-relaxed text-[10px]">
-                  You can append <code className="text-cyan-400 font-mono">@think=N</code> to the model name to specify
-                  thinking depth (where 0 is deepest, 4 is shallowest):
+                  You can append <code className="text-cyan-400 font-mono">@think=N</code> to any model name to specify
+                  thinking depth (where 0 is deepest reasoning, 4 is normal):
                   <br />
-                  &bull; <code className="text-zinc-350">gemini-3.5-flash-thinking@think=0</code> (Deepest, default)
+                  &bull; <code className="text-zinc-350">gemini-2.0-flash-thinking-exp@think=0</code> (Deepest, default)
                   <br />
-                  &bull; <code className="text-zinc-350">gemini-3.5-flash-thinking@think=2</code> (Medium depth)
+                  &bull; <code className="text-zinc-350">gemini-2.0-flash@think=0</code> (Enable thinking on flash)
                   <br />
-                  &bull; <code className="text-zinc-350">gemini-3.5-flash-thinking@think=4</code> (Shallowest, fastest
-                  thinking)
+                  &bull; <code className="text-zinc-350">gemini-2.0-flash-thinking-exp@think=4</code> (Fastest thinking)
                 </p>
               </div>
             </div>
@@ -661,92 +665,153 @@ models = [${modelsList}]`;
             id="step-cookie-auth"
             className="bg-[#0b0c0f] border border-zinc-800 rounded p-5 space-y-4 scroll-mt-6"
           >
-            <div className="border-b border-zinc-900 pb-3 flex items-center gap-2 select-none">
-              <Key size={14} className="text-cyan-400" />
-              <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono">
-                4. Cookies Extraction & Setup (Required for Pro)
-              </h3>
+            <div className="border-b border-zinc-900 pb-3 flex items-center justify-between select-none">
+              <div className="flex items-center gap-2">
+                <Key size={14} className="text-cyan-400" />
+                <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono">
+                  4. Cookie Manager & Auto-Extraction
+                </h3>
+              </div>
+              <span className="text-[10px] bg-cyan-950/40 text-cyan-400 border border-cyan-800/40 px-2 py-0.5 rounded font-mono">
+                1-Click Fast Setup
+              </span>
             </div>
 
-            <div className="space-y-3.5 text-[11px] text-zinc-300 font-mono">
+            <div className="space-y-4 text-[11px] text-zinc-300 font-mono">
               <p className="leading-relaxed text-zinc-400">
-                To route queries through Google Gemini's web backend (necessary to unlock the Pro tier), you must
-                extract your active browser session cookies and load them in the gateway:
+                To route queries through Google Gemini's web backend and dynamically discover all active models, you
+                need your Google session cookies. Use the quick 1-click bookmarklet or paste them directly:
               </p>
 
-              <div className="relative border-l border-zinc-800 pl-4 space-y-3.5 py-0.5">
-                <div className="space-y-0.5">
-                  <div className="font-bold text-zinc-200 uppercase text-[10px] tracking-wide">
-                    A. Extract Session Cookies
-                  </div>
-                  <p className="text-zinc-400">
-                    1. Visit{" "}
-                    <a
-                      href="https://gemini.google.com"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-cyan-400 hover:underline"
-                    >
-                      gemini.google.com
-                    </a>{" "}
-                    and sign in.
-                    <br />
-                    2. Press{" "}
-                    <kbd className="px-1.5 py-0.5 bg-zinc-900 border border-zinc-850 rounded text-[9px] text-zinc-300">
-                      F12
-                    </kbd>{" "}
-                    or right-click ➔ Inspect to open DevTools.
-                    <br />
-                    3. Go to{" "}
-                    <strong className="text-zinc-200">
-                      Application (or Storage) ➔ Cookies ➔ https://gemini.google.com
-                    </strong>
-                    .<br />
-                    4. Copy the values of the cookies: <strong className="text-zinc-300">SID</strong>,{" "}
-                    <strong className="text-zinc-300">SAPISID</strong>, and{" "}
-                    <strong className="text-zinc-300">__Secure-1PSID</strong>.
-                  </p>
+              {/* Fast 1-Click Bookmarklet */}
+              <div className="p-3.5 bg-[#0e0f13] border border-cyan-500/20 rounded space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-cyan-300 uppercase tracking-wide flex items-center gap-1.5">
+                    ⚡ Quick Bookmarklet (1-Click Auto-Copy)
+                  </span>
                 </div>
+                <p className="text-[10px] text-zinc-400 leading-relaxed">
+                  1. Open{" "}
+                  <a
+                    href="https://gemini.google.com"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-cyan-400 underline"
+                  >
+                    gemini.google.com
+                  </a>{" "}
+                  in your browser.
+                  <br />
+                  2. Open DevTools Console (
+                  <kbd className="px-1 py-0.5 bg-zinc-900 border border-zinc-800 rounded text-[9px]">F12</kbd> →
+                  Console) or create a Bookmark with the code below.
+                  <br />
+                  3. Run it — all required cookies will be copied to your clipboard instantly!
+                </p>
+                <div className="relative bg-[#07080a] border border-zinc-800 rounded p-2.5 text-[9px] text-zinc-400 break-all select-all flex justify-between items-center gap-3">
+                  <span className="truncate font-mono">
+                    javascript:void(function()
+                    {`var c=document.cookie.split(";").map(function(s){return s.trim()}).filter(function(s){return /^(SID|HSID|SSID|APISID|SAPISID|__Secure-)/i.test(s)}).join("; ");navigator.clipboard.writeText(c).then(function(){alert("✅ "+c.split(";").length+" Gemini cookies copied! Paste them into the gateway UI.")});`}
+                    )()
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      copyGuideText(
+                        `javascript:void(function(){var c=document.cookie.split(";").map(function(s){return s.trim()}).filter(function(s){return /^(SID|HSID|SSID|APISID|SAPISID|__Secure-)/i.test(s)}).join("; ");navigator.clipboard.writeText(c).then(function(){alert("✅ "+c.split(";").length+" Gemini cookies copied! Paste them into the gateway UI.")});})()`,
+                        "bookmarklet-code"
+                      )
+                    }
+                    className="text-cyan-400 hover:text-cyan-300 transition shrink-0 px-2 py-1 bg-cyan-950/40 border border-cyan-800/40 rounded flex items-center gap-1 text-[10px]"
+                    title="Copy 1-click extractor script"
+                  >
+                    {copiedId === "bookmarklet-code" ? (
+                      <Check size={12} className="text-emerald-400" />
+                    ) : (
+                      <Copy size={12} />
+                    )}
+                    <span>Copy Script</span>
+                  </button>
+                </div>
+              </div>
 
-                <div className="space-y-2">
-                  <div className="font-bold text-zinc-200 uppercase text-[10px] tracking-wide">
-                    B. Save in Local Environment (`cookie.txt`)
-                  </div>
-                  <p className="text-zinc-400">
-                    Format these values into a single line inside a text file named{" "}
-                    <code className="text-cyan-400 bg-zinc-900 px-1 py-0.5 rounded border border-zinc-850">
-                      cookie.txt
-                    </code>{" "}
-                    at the gateway root:
-                  </p>
-                  <div className="relative bg-[#0e0f13] border border-zinc-850 rounded p-3 text-[10px] break-all select-all flex justify-between items-center gap-4 text-zinc-300">
-                    <span>
-                      SID=your_sid; HSID=your_hsid; SSID=your_ssid; SAPISID=your_sapisid; __Secure-1PSID=your_1psid;
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        copyGuideText(
-                          "SID=your_sid; HSID=your_hsid; SSID=your_ssid; SAPISID=your_sapisid; __Secure-1PSID=your_1psid;",
-                          "cookie-txt-template"
-                        )
-                      }
-                      className="text-zinc-500 hover:text-cyan-400 transition shrink-0 p-1 bg-zinc-900 border border-zinc-850 rounded"
-                      title="Copy placeholder format"
-                    >
-                      {copiedId === "cookie-txt-template" ? (
-                        <Check size={12} className="text-emerald-500" />
-                      ) : (
-                        <Copy size={12} />
-                      )}
-                    </button>
-                  </div>
+              {/* Complete Cookie Checklist Table */}
+              <div className="space-y-2 pt-2">
+                <div className="font-bold text-zinc-200 uppercase text-[10px] tracking-wide flex items-center justify-between">
+                  <span>List of Required & Recommended Cookies</span>
+                </div>
+                <div className="overflow-x-auto border border-zinc-850 rounded">
+                  <table className="w-full text-left border-collapse text-[10px] text-zinc-300">
+                    <thead>
+                      <tr className="border-b border-zinc-850 bg-[#0e0f13] text-zinc-400 uppercase tracking-wider text-[9px] font-bold">
+                        <th className="py-2 px-3">Cookie Name</th>
+                        <th className="py-2 px-3">Priority</th>
+                        <th className="py-2 px-3">Purpose</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-850/50">
+                      <tr>
+                        <td className="py-2 px-3 font-bold text-cyan-400 select-all">__Secure-1PSID</td>
+                        <td className="py-2 px-3">
+                          <span className="text-rose-400 font-bold bg-rose-950/40 px-1.5 py-0.5 rounded border border-rose-900/30">
+                            Required
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-zinc-400">Primary Google session token</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2 px-3 font-bold text-cyan-400 select-all">__Secure-1PSIDTS</td>
+                        <td className="py-2 px-3">
+                          <span className="text-rose-400 font-bold bg-rose-950/40 px-1.5 py-0.5 rounded border border-rose-900/30">
+                            Required
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-zinc-400">Session timestamp token</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2 px-3 font-bold text-cyan-400 select-all">__Secure-1PSIDCC</td>
+                        <td className="py-2 px-3">
+                          <span className="text-rose-400 font-bold bg-rose-950/40 px-1.5 py-0.5 rounded border border-rose-900/30">
+                            Required
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-zinc-400">Cookie consent challenge verification</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2 px-3 font-bold text-cyan-400 select-all">SAPISID</td>
+                        <td className="py-2 px-3">
+                          <span className="text-amber-400 font-bold bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-900/30">
+                            Important
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-zinc-400">Generates SAPISIDHASH Authorization header</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2 px-3 font-bold text-zinc-300 select-all">__Secure-3PSID & TS/CC</td>
+                        <td className="py-2 px-3">
+                          <span className="text-zinc-400 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800">
+                            Recommended
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-zinc-400">3rd-party session context fallback</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2 px-3 font-bold text-zinc-300 select-all">SID, HSID, SSID, APISID</td>
+                        <td className="py-2 px-3">
+                          <span className="text-zinc-400 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800">
+                            Recommended
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-zinc-400">Standard Google authentication cookies</td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
           </section>
 
-          {/* Step 5: Test Cookie Online */}
+          {/* Step 5: Save & Validate Cookie */}
           <section
             id="step-diagnostic"
             className="bg-[#0b0c0f] border border-zinc-800 rounded p-5 space-y-4 scroll-mt-6"
@@ -754,39 +819,46 @@ models = [${modelsList}]`;
             <div className="border-b border-zinc-900 pb-3 flex items-center gap-2 select-none">
               <Activity size={14} className="text-cyan-400" />
               <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono">
-                5. Session Cookie Validator Terminal
+                5. Save & Test Cookie In Local Gateway
               </h3>
             </div>
 
             <div className="space-y-4 text-[11px] text-zinc-300 font-mono">
               <p className="leading-relaxed text-zinc-400">
-                Paste your extracted cookie string below to test if the gateway can successfully authenticate with
-                Google Gemini:
+                Paste your extracted cookie string below. Clicking <strong>Save to cookie.txt & Test</strong> will
+                automatically write to <code className="text-cyan-400">cookies/cookie.txt</code> and verify your live
+                connection with Gemini.
               </p>
 
               <div className="space-y-3">
                 <textarea
                   value={cookieTestInput}
                   onChange={(e) => setCookieTestInput(e.target.value)}
-                  placeholder="Paste your cookie string (e.g., SID=xxxx; SAPISID=xxxx; __Secure-1PSID=xxxx;)"
-                  rows={3}
-                  className="w-full bg-[#0e0f13] border border-zinc-850 focus:border-zinc-700 rounded px-3 py-2 text-xs outline-none text-zinc-350 font-mono resize-y transition"
+                  placeholder="Paste cookie string here (e.g. SID=...; SAPISID=...; __Secure-1PSID=...; __Secure-1PSIDTS=...;)"
+                  rows={4}
+                  className="w-full bg-[#0e0f13] border border-zinc-850 focus:border-cyan-500/50 rounded px-3 py-2 text-xs outline-none text-zinc-300 font-mono resize-y transition"
                 />
 
-                <div className="flex flex-wrap justify-between items-center gap-3 select-none">
+                <div className="flex flex-wrap items-center gap-3 select-none">
                   <button
                     type="button"
-                    onClick={handleTestCookie}
+                    onClick={async () => {
+                      if (!cookieTestInput.trim()) return;
+                      await handleTestCookie();
+                    }}
                     disabled={isTestingCookie || !cookieTestInput.trim()}
-                    className="bg-cyan-500/10 border border-cyan-500/20 hover:border-cyan-500/40 hover:bg-cyan-500/20 disabled:opacity-30 disabled:hover:bg-cyan-500/10 text-cyan-400 rounded px-4 py-2 text-xs font-mono transition flex items-center gap-2"
+                    className="bg-cyan-500/20 border border-cyan-500/40 hover:bg-cyan-500/30 disabled:opacity-30 text-cyan-300 font-bold rounded px-4 py-2 text-xs font-mono transition flex items-center gap-2 shadow-[0_0_15px_rgba(6,182,212,0.15)]"
                   >
                     {isTestingCookie ? (
                       <>
                         <RefreshCw size={12} className="animate-spin" />
-                        <span>Running Diagnostics...</span>
+                        <span>Saving & Testing Gemini Connection...</span>
                       </>
                     ) : (
-                      <span>Validate Cookie Connection</span>
+                      <>
+                        <Check size={12} />
+                        <span>Save to cookie.txt & Test Live</span>
+                      </>
                     )}
                   </button>
 
@@ -794,12 +866,12 @@ models = [${modelsList}]`;
                     <div
                       className={`px-3 py-2 rounded border text-[10px] font-bold uppercase tracking-wide flex items-center gap-2 ${
                         testResult.success
-                          ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
-                          : "bg-rose-500/10 border-rose-500/20 text-rose-400"
+                          ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                          : "bg-rose-500/10 border-rose-500/30 text-rose-400"
                       }`}
                     >
                       <span
-                        className={`h-1.5 w-1.5 rounded-full ${testResult.success ? "bg-emerald-400" : "bg-rose-400"}`}
+                        className={`h-2 w-2 rounded-full ${testResult.success ? "bg-emerald-400 animate-pulse" : "bg-rose-400"}`}
                       />
                       <span>{testResult.message}</span>
                     </div>

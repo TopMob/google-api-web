@@ -1,16 +1,16 @@
 import { buildGeminiRequest } from "./gemini.js";
-import { parseToolCalls, cleanGeminiText } from "../utils/parsers.js";
 import { geminiCircuitBreaker } from "../utils/circuitBreaker.js";
-import { logUsage } from "./auth.js";
-import { normalizeError } from "../utils/errors.js";
-import { logger } from "../logger.js";
 import { fetchWithRetry } from "../utils/fetchWithRetry.js";
+import { logUsage } from "./auth.js";
 import { countTokens } from "../utils/tokens.js";
+import { cleanGeminiText, parseToolCalls } from "../utils/parsers.js";
+import { logger } from "../logger.js";
+import { normalizeError } from "../utils/errors.js";
 export async function handleChatStream(prompt, modelName, cfg, auth, reply, cid, startTime, signal) {
   const customCookie = auth.customCookie;
   let responseText = "";
   try {
-    const { url, headers, body } = buildGeminiRequest(prompt, cfg.mode, cfg.think, customCookie);
+    const { url, headers, body } = await buildGeminiRequest(prompt, cfg.mode, cfg.think, customCookie);
     const response = await geminiCircuitBreaker.execute(async () => {
       return await fetchWithRetry(url, {
         method: "POST",
@@ -27,31 +27,42 @@ export async function handleChatStream(prompt, modelName, cfg, auth, reply, cid,
     const decoder = new TextDecoder();
     let buffer = "";
     let prevCleanedText = "";
-    while (true) {
+    let isCompleted = false;
+    while (!isCompleted) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
       for (const line of lines) {
-        if (!line.includes('"wrb.fr"') || line.length < 200) continue;
+        // Check for Google End-Of-Stream markers
+        if (line.includes('["di",') || line.includes('["e",') || line.includes('"af.httprm"')) {
+          isCompleted = true;
+          break;
+        }
+        if (!line.includes('"wrb.fr"') || line.length < 50) continue;
         try {
           const innerStr = JSON.parse(line)[0][2];
-          if (!innerStr || innerStr.length < 50) continue;
+          if (!innerStr || innerStr.length < 20) continue;
           const inner = JSON.parse(innerStr);
           if (Array.isArray(inner)) {
             const candidates = [inner[4], inner[0]].filter(Boolean);
-            let textFound = false;
             for (const candidate of candidates) {
               if (Array.isArray(candidate)) {
                 let fullText = "";
+                let candidateFinished = false;
                 for (const part of candidate) {
-                  if (Array.isArray(part) && Array.isArray(part[1])) {
-                    fullText += part[1].filter((t) => typeof t === "string").join("");
+                  if (Array.isArray(part)) {
+                    if (Array.isArray(part[1])) {
+                      fullText += part[1].filter((t) => typeof t === "string").join("");
+                    }
+                    const statusArr = part[8];
+                    if (Array.isArray(statusArr) && statusArr.includes(2)) {
+                      candidateFinished = true;
+                    }
                   }
                 }
                 if (fullText.trim()) {
-                  textFound = true;
                   const cleanedText = cleanGeminiText(fullText);
                   if (cleanedText.length > prevCleanedText.length) {
                     const delta = cleanedText.substring(prevCleanedText.length);
@@ -66,14 +77,21 @@ export async function handleChatStream(prompt, modelName, cfg, auth, reply, cid,
                     reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
                     prevCleanedText = cleanedText;
                   }
+                  if (candidateFinished) {
+                    isCompleted = true;
+                  }
                   break;
                 }
               }
             }
           }
         } catch {}
+        if (isCompleted) break;
       }
     }
+    try {
+      reader.cancel();
+    } catch {}
     const finalChunk = {
       id: cid,
       object: "chat.completion.chunk",
@@ -127,7 +145,7 @@ export async function handleChatStreamWithTools(prompt, modelName, cfg, auth, re
   let streamedLength = 0;
   let toolSuspended = false;
   try {
-    const { url, headers, body } = buildGeminiRequest(prompt, cfg.mode, cfg.think, customCookie);
+    const { url, headers, body } = await buildGeminiRequest(prompt, cfg.mode, cfg.think, customCookie);
     const response = await fetchWithRetry(url, {
       method: "POST",
       headers,
@@ -141,14 +159,19 @@ export async function handleChatStreamWithTools(prompt, modelName, cfg, auth, re
     }
     const decoder = new TextDecoder();
     let buffer = "";
-    while (true) {
+    let isCompleted = false;
+    while (!isCompleted) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
       for (const line of lines) {
-        if (!line.includes('"wrb.fr"') || line.length < 200) continue;
+        if (line.includes('["di",') || line.includes('["e",') || line.includes('"af.httprm"')) {
+          isCompleted = true;
+          break;
+        }
+        if (!line.includes('"wrb.fr"') || line.length < 50) continue;
         try {
           const parsedLine = JSON.parse(line);
           const innerStr = parsedLine?.[0]?.[2];
@@ -156,17 +179,22 @@ export async function handleChatStreamWithTools(prompt, modelName, cfg, auth, re
           const inner = JSON.parse(innerStr);
           if (Array.isArray(inner)) {
             const candidates = [inner[4], inner[0]].filter(Boolean);
-            let textFound = false;
             for (const candidate of candidates) {
               if (Array.isArray(candidate)) {
                 let fullText = "";
+                let candidateFinished = false;
                 for (const part of candidate) {
-                  if (Array.isArray(part) && Array.isArray(part[1])) {
-                    fullText += part[1].filter((t) => typeof t === "string").join("");
+                  if (Array.isArray(part)) {
+                    if (Array.isArray(part[1])) {
+                      fullText += part[1].filter((t) => typeof t === "string").join("");
+                    }
+                    const statusArr = part[8];
+                    if (Array.isArray(statusArr) && statusArr.includes(2)) {
+                      candidateFinished = true;
+                    }
                   }
                 }
                 if (fullText.trim()) {
-                  textFound = true;
                   const cleanedText = cleanGeminiText(fullText);
                   if (cleanedText.length > responseText.length) {
                     responseText = cleanedText;
@@ -196,14 +224,21 @@ export async function handleChatStreamWithTools(prompt, modelName, cfg, auth, re
                       }
                     }
                   }
+                  if (candidateFinished) {
+                    isCompleted = true;
+                  }
                   break;
                 }
               }
             }
           }
         } catch {}
+        if (isCompleted) break;
       }
     }
+    try {
+      reader.cancel();
+    } catch {}
     const { cleanText, toolCalls } = parseToolCalls(responseText);
     if (cleanText.length > streamedLength) {
       const delta = cleanText.substring(streamedLength);
@@ -236,21 +271,21 @@ export async function handleChatStreamWithTools(prompt, modelName, cfg, auth, re
                 }
               }))
             },
-            finish_reason: null
+            finish_reason: "tool_calls"
           }
         ]
       };
       reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
+    } else {
+      const chunk = {
+        id: cid,
+        object: "chat.completion.chunk",
+        created: Math.floor(Date.now() / 1000),
+        model: modelName,
+        choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
+      };
+      reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
     }
-    const finish = toolCalls ? "tool_calls" : "stop";
-    const finalChunk = {
-      id: cid,
-      object: "chat.completion.chunk",
-      created: Math.floor(Date.now() / 1000),
-      model: modelName,
-      choices: [{ index: 0, delta: {}, finish_reason: finish }]
-    };
-    reply.raw.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
     reply.raw.write("data: [DONE]\n\n");
     reply.raw.end();
     const durationMs = Date.now() - startTime;
@@ -259,13 +294,12 @@ export async function handleChatStreamWithTools(prompt, modelName, cfg, auth, re
       auth.apiKeyId,
       modelName,
       countTokens(prompt),
-      countTokens(cleanText || ""),
+      countTokens(cleanText),
       durationMs,
       200
     );
   } catch (e) {
-    const errMessage = e instanceof Error ? e.message : String(e);
-    logger.error({ err: errMessage }, "Streaming error with tools");
+    logger.error({ err: e }, "Streaming with tools error");
     const normalized = normalizeError(e);
     const errChunk = {
       id: cid,

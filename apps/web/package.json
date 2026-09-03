@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"
@@ -11,8 +11,6 @@
   "dependencies": {
     "@ai-sdk/react": "^3.0.195",
     "@hookform/resolvers": "^5.4.0",
-    "@supabase/ssr": "^0.10.3",
-    "@supabase/supabase-js": "^2.106.2",
     "ai": "^6.0.193",
     "clsx": "^2.1.1",
     "lucide-react": "^1.17.0",

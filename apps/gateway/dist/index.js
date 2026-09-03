@@ -4,7 +4,11 @@ import { logger } from "./logger.js";
 import { registerRoutes } from "./routes.js";
 import { closeDatabaseConnections } from "./db.js";
 import { normalizeError } from "./utils/errors.js";
-const server = fastify({ logger: logger });
+import { refreshModels, startModelRefreshTimer, stopModelRefreshTimer } from "./utils/models.js";
+const server = fastify({
+  logger: logger,
+  disableRequestLogging: true
+});
 server.register(import("@fastify/helmet"), {
   contentSecurityPolicy: false
 });
@@ -19,6 +23,9 @@ server.setErrorHandler((error, request, reply) => {
 registerRoutes(server);
 async function main() {
   try {
+    // Fetch available models from Gemini on startup
+    await refreshModels();
+    startModelRefreshTimer();
     await server.listen({ port: PORT, host: HOST });
     logger.info(`Gateway listening on http://${HOST}:${PORT}`);
   } catch (err) {
@@ -30,6 +37,7 @@ const signals = ["SIGTERM", "SIGINT"];
 for (const signal of signals) {
   process.on(signal, async () => {
     logger.info(`Received ${signal}, starting graceful shutdown...`);
+    stopModelRefreshTimer();
     try {
       await server.close();
       logger.info("Fastify server closed.");

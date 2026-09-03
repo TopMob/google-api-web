@@ -1,6 +1,6 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import crypto from "crypto";
-import { MODELS } from "../utils/models.js";
+import { resolveModelConfig } from "../utils/models.js";
 import { verifyApiKey, logUsage } from "../services/auth.js";
 import { geminiStreamGenerate } from "../services/gemini.js";
 import { extractResponseText, parseToolCalls, messagesToPrompt } from "../utils/parsers.js";
@@ -24,18 +24,8 @@ export async function responsesApiController(request: FastifyRequest, reply: Fas
     });
   }
   const req = parseResult.data;
-  const modelName = req.model;
-  const cfg = MODELS[modelName];
-  if (!cfg) {
-    return reply.status(400).send({
-      error: {
-        message: `Unknown model: ${modelName}`,
-        type: "invalid_request_error",
-        param: "model",
-        code: "unknown_model"
-      }
-    });
-  }
+  const rawModelName = req.model;
+  const { config: cfg, cleanModelName: modelName } = resolveModelConfig(rawModelName);
 
   const auth = await verifyApiKey(request, modelName);
   if (!auth.valid) {

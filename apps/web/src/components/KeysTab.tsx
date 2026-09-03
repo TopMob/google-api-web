@@ -147,19 +147,26 @@ export default function KeysTab({
                   return (
                     <tr key={k.id} className="hover:bg-[#0e0f13]/55 transition-colors">
                       <td className="py-3 pr-4 font-bold text-zinc-200 text-[11px]">{k.name}</td>
-                      <td className="py-3 px-4 text-cyan-400 text-[10px] flex items-center gap-2">
-                        <span className="select-all">{k.key.substring(0, 16)}...</span>
-                        <button
-                          onClick={() => copyText(k.key)}
-                          className="text-zinc-500 hover:text-cyan-400 transition"
-                        >
-                          {copiedKey === k.key ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
-                        </button>
+                      <td className="py-3 px-4 text-cyan-400 text-[10px]">
+                        <div className="flex items-center gap-2">
+                          <span className="select-all font-mono break-all font-medium">{k.key}</span>
+                          <button
+                            onClick={() => copyText(k.key)}
+                            className="text-zinc-500 hover:text-cyan-400 transition shrink-0 p-1 bg-zinc-900/60 border border-zinc-800 rounded"
+                            title="Copy full key"
+                          >
+                            {copiedKey === k.key ? (
+                              <Check size={11} className="text-emerald-500" />
+                            ) : (
+                              <Copy size={11} />
+                            )}
+                          </button>
+                        </div>
                       </td>
-                      <td className="py-3 px-4 text-zinc-400 text-[11px]">
+                      <td suppressHydrationWarning className="py-3 px-4 text-zinc-400 text-[11px]">
                         {new Date(k.created_at).toLocaleDateString()}
                       </td>
-                      <td className="py-3 px-4 text-zinc-400 text-[11px]">
+                      <td suppressHydrationWarning className="py-3 px-4 text-zinc-400 text-[11px]">
                         {k.expires_at ? new Date(k.expires_at).toLocaleString() : "Never"}
                       </td>
                       <td className="py-3 px-4">

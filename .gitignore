@@ -43,3 +43,7 @@ next-env.d.ts
 # cookies
 /cookies/*
 !/cookies/.gitkeep
+
+# local store data
+data/
+apps/gateway/data/

@@ -1,15 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-const supabase = createClient(supabaseUrl, supabaseKey);
+const gatewayUrl = () => process.env.GATEWAY_URL || "http://127.0.0.1:8081";
 
 export async function GET() {
   try {
-    const { data, error } = await supabase.from("projects").select("*").order("created_at", { ascending: false });
-    if (error) throw error;
-    return NextResponse.json(data);
+    const res = await fetch(`${gatewayUrl()}/api/projects`, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) throw new Error(`Gateway error: ${res.status}`);
+    return NextResponse.json(await res.json());
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -18,13 +15,14 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { name } = body;
-    if (!name) {
-      return NextResponse.json({ error: "Project name is required" }, { status: 400 });
-    }
-    const { data, error } = await supabase.from("projects").insert({ name }).select().single();
-    if (error) throw error;
-    return NextResponse.json(data);
+    const res = await fetch(`${gatewayUrl()}/api/projects`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(5000)
+    });
+    if (!res.ok) throw new Error(`Gateway error: ${res.status}`);
+    return NextResponse.json(await res.json());
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

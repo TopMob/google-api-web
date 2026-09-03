@@ -124,7 +124,7 @@ export default function Sidebar({
               .filter((k) => k.active)
               .map((k) => (
                 <option key={k.id} value={k.key}>
-                  {k.name} ({k.key.substring(3, 11)}...)
+                  {k.name} ({k.key})
                 </option>
               ))}
           </select>

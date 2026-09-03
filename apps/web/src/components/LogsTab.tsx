@@ -67,7 +67,7 @@ export default function LogsTab({ recentLogs }: LogsTabProps) {
                         </span>
                         <span className="font-bold text-zinc-300">{l.model}</span>
                       </div>
-                      <span className="text-[9px] text-zinc-550 flex items-center gap-1">
+                      <span suppressHydrationWarning className="text-[9px] text-zinc-550 flex items-center gap-1">
                         <Clock size={10} />
                         {new Date(l.created_at).toLocaleTimeString()}
                       </span>
