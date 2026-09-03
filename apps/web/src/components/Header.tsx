@@ -48,6 +48,18 @@ export default function Header({
   const TabInfo = getTabInfo();
   const Icon = TabInfo.icon;
 
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [customInputMode, setCustomInputMode] = useState(false);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await fetchModels();
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   return (
     <header className="h-14 border-b border-zinc-800 bg-[#090a0f] px-6 flex items-center justify-between font-sans select-none shrink-0">
       {/* Tab Indicator & Model Selector */}
@@ -59,31 +71,56 @@ export default function Header({
 
         <span className="h-4 w-px bg-zinc-800" />
 
-        {/* Model Dropdown */}
+        {/* Model Dropdown & Custom Model Input */}
         <div className="flex items-center gap-2 text-xs">
           <Cpu size={13} className="text-zinc-500" />
           <span className="text-zinc-400 font-mono text-[11px]">Model:</span>
-          <div className="relative flex items-center">
-            <select
+          {customInputMode ? (
+            <input
+              type="text"
               value={selectedModel}
               onChange={(e) => setSelectedModel(e.target.value)}
-              className="bg-[#0d0e12] border border-zinc-850 hover:border-zinc-700 rounded pl-2.5 pr-7 py-1 text-[11px] font-mono text-zinc-300 outline-none transition cursor-pointer appearance-none"
-            >
-              {models.map((m) => (
-                <option key={m} value={m} className="bg-[#090a0f] font-mono">
-                  {m}
-                </option>
-              ))}
-            </select>
-            <div className="absolute right-2 pointer-events-none text-zinc-500">
-              <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-              </svg>
+              placeholder="e.g. gemini-3.8-flash"
+              className="bg-[#0d0e12] border border-cyan-500/40 focus:border-cyan-400 rounded px-2 py-0.5 text-[11px] font-mono text-zinc-200 outline-none w-44 transition"
+            />
+          ) : (
+            <div className="relative flex items-center">
+              <select
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                className="bg-[#0d0e12] border border-zinc-850 hover:border-zinc-700 rounded pl-2.5 pr-7 py-1 text-[11px] font-mono text-zinc-300 outline-none transition cursor-pointer appearance-none"
+              >
+                {models.length === 0 ? (
+                  <option value="" disabled className="bg-[#090a0f] font-mono">
+                    Loading models from Gemini...
+                  </option>
+                ) : (
+                  models.map((m) => (
+                    <option key={m} value={m} className="bg-[#090a0f] font-mono">
+                      {m}
+                    </option>
+                  ))
+                )}
+              </select>
+              <div className="absolute right-2 pointer-events-none text-zinc-500">
+                <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
             </div>
-          </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setCustomInputMode((prev) => !prev)}
+            className="text-[10px] font-mono text-zinc-500 hover:text-zinc-300 px-1.5 py-0.5 border border-zinc-800 hover:border-zinc-700 rounded transition"
+            title={customInputMode ? "Switch to model dropdown" : "Type custom model name"}
+          >
+            {customInputMode ? "List" : "Custom"}
+          </button>
           <button
             onClick={handleCopyModel}
-            className="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/20 hover:border-cyan-500/40 rounded px-2.5 py-1 text-[10px] font-mono transition flex items-center gap-1.5 shrink-0"
+            disabled={!selectedModel}
+            className="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/20 hover:border-cyan-500/40 rounded px-2.5 py-1 text-[10px] font-mono transition flex items-center gap-1.5 shrink-0 disabled:opacity-40"
             title="Copy selected model name"
           >
             {copiedModel ? (
@@ -99,11 +136,12 @@ export default function Header({
             )}
           </button>
           <button
-            onClick={fetchModels}
-            className="text-zinc-500 hover:text-cyan-400 transition-colors p-1"
-            title="Refresh models"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="text-zinc-500 hover:text-cyan-400 transition-colors p-1 disabled:opacity-50"
+            title="Query Google for live available models"
           >
-            <RefreshCw size={11} />
+            <RefreshCw size={11} className={isRefreshing ? "animate-spin text-cyan-400" : ""} />
           </button>
         </div>
       </div>

@@ -581,65 +581,28 @@ models = [${modelsList}]`;
             <div className="border-b border-zinc-900 pb-3 flex items-center gap-2 select-none">
               <BookOpen size={14} className="text-cyan-400" />
               <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono">
-                3. List of Supported Models
+                3. Dynamic Model Discovery
               </h3>
             </div>
 
             <div className="space-y-3.5 text-[11px] text-zinc-350 font-mono">
               <p className="text-zinc-400 leading-relaxed">
-                The gateway exposes the following model identifiers which can be passed to the `/v1/chat/completions`
-                API:
+                The gateway has <strong className="text-zinc-200">zero hardcoded models</strong>. On startup and via the
+                live endpoint <code className="text-cyan-400 font-mono">/v1/models</code>, it dynamically queries your
+                Google Gemini session to discover all currently active and available models in real-time.
               </p>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-[10px] text-zinc-300">
-                  <thead>
-                    <tr className="border-b border-zinc-900 text-zinc-500 uppercase tracking-wider select-none text-[8px] font-bold">
-                      <th className="pb-2">Model ID</th>
-                      <th className="pb-2 px-4">Output Length</th>
-                      <th className="pb-2">Primary Use-case</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-900">
-                    <tr className="hover:bg-[#0e0f13]/40 transition">
-                      <td className="py-2.5 font-bold text-cyan-400 select-all">gemini-2.0-flash</td>
-                      <td className="py-2.5 px-4 text-zinc-400 font-semibold">Fast (Default)</td>
-                      <td className="py-2.5 text-zinc-400">Official fast multimodal model with next-gen speed</td>
-                    </tr>
-                    <tr className="hover:bg-[#0e0f13]/40 transition">
-                      <td className="py-2.5 font-bold text-cyan-400 select-all">gemini-2.0-flash-thinking-exp</td>
-                      <td className="py-2.5 px-4 text-zinc-400 font-semibold">~20k chars</td>
-                      <td className="py-2.5 text-zinc-400">Advanced reasoning & extended thinking mode</td>
-                    </tr>
-                    <tr className="hover:bg-[#0e0f13]/40 transition">
-                      <td className="py-2.5 font-bold text-cyan-400 select-all">gemini-2.0-pro-exp-02-05</td>
-                      <td className="py-2.5 px-4 text-zinc-400 font-semibold">Flagship</td>
-                      <td className="py-2.5 text-zinc-400">
-                        Top-tier coding, complex reasoning & benchmark performance
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-[#0e0f13]/40 transition">
-                      <td className="py-2.5 font-bold text-cyan-400 select-all">gemini-2.0-flash-lite</td>
-                      <td className="py-2.5 px-4 text-zinc-400 font-semibold">Ultra-fast</td>
-                      <td className="py-2.5 text-zinc-400">Lowest latency, high throughput</td>
-                    </tr>
-                    <tr className="hover:bg-[#0e0f13]/40 transition">
-                      <td className="py-2.5 font-bold text-cyan-400 select-all">gemini-1.5-pro</td>
-                      <td className="py-2.5 px-4 text-zinc-400 font-semibold">2M Context</td>
-                      <td className="py-2.5 text-zinc-400">Deep context reasoning and document analysis</td>
-                    </tr>
-                    <tr className="hover:bg-[#0e0f13]/40 transition">
-                      <td className="py-2.5 font-bold text-cyan-400 select-all">gemini-1.5-flash</td>
-                      <td className="py-2.5 px-4 text-zinc-400 font-semibold">1M Context</td>
-                      <td className="py-2.5 text-zinc-400">Proven lightweight multimodal generation</td>
-                    </tr>
-                    <tr className="hover:bg-[#0e0f13]/40 transition">
-                      <td className="py-2.5 font-bold text-cyan-400 select-all">gemini-auto</td>
-                      <td className="py-2.5 px-4 text-zinc-400 font-semibold">Auto</td>
-                      <td className="py-2.5 text-zinc-400">Automatic routing based on prompt size and type</td>
-                    </tr>
-                  </tbody>
-                </table>
+              <div className="p-3 bg-[#0d0e12] border border-cyan-500/20 rounded space-y-2">
+                <span className="font-bold text-cyan-400 block text-[10px] uppercase tracking-wider">
+                  ⚡ Always Up-To-Date & Forward-Compatible
+                </span>
+                <p className="text-zinc-300 text-[10px] leading-relaxed">
+                  Whatever models Google releases (such as{" "}
+                  <code className="text-cyan-300 font-mono">gemini-3.8-flash</code>,{" "}
+                  <code className="text-cyan-300 font-mono">gemini-3.7-flash</code>, or custom models), the gateway
+                  automatically accepts them via <code className="text-cyan-400 font-mono">/v1/chat/completions</code>{" "}
+                  and lists them dynamically.
+                </p>
               </div>
 
               <div className="p-3 bg-[#0d0e12] border border-zinc-850 rounded">

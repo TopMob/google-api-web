@@ -9,81 +9,41 @@ export interface ModelConfig {
   desc: string;
 }
 
-// Real, currently active Gemini models lineup
+// Universal baseline models (no hardcoded versions; populated dynamically from Google session)
 const FALLBACK_MODELS: Record<string, ModelConfig> = {
-  "gemini-2.5-flash": {
-    mode: 1,
-    think: 4,
-    desc: "Gemini 2.5 Flash — Fast, high-efficiency hybrid reasoning model (Recommended)"
-  },
-  "gemini-2.5-flash-thinking": {
-    mode: 2,
-    think: 0,
-    desc: "Gemini 2.5 Flash Thinking — Dynamic reasoning with extended depth"
-  },
-  "gemini-2.5-pro": {
-    mode: 3,
-    think: 4,
-    desc: "Gemini 2.5 Pro — Flagship advanced reasoning & coding intelligence"
-  },
-  "gemini-2.0-flash": {
-    mode: 1,
-    think: 4,
-    desc: "Gemini 2.0 Flash — High-speed general conversational model"
-  },
-  "gemini-auto": {
-    mode: 4,
-    think: 4,
-    desc: "Gemini Auto — Automatic intelligent routing based on task complexity"
-  },
-  // Convenient aliases
   "gemini-flash": {
     mode: 1,
     think: 4,
-    desc: "Gemini Flash — Alias for latest flash model"
+    desc: "Gemini Flash — High-speed conversational model"
   },
   "gemini-pro": {
     mode: 3,
     think: 4,
-    desc: "Gemini Pro — Alias for latest pro model"
+    desc: "Gemini Pro — Advanced reasoning model"
   },
   "gemini-thinking": {
     mode: 2,
     think: 0,
-    desc: "Gemini Thinking — Alias for latest reasoning model"
+    desc: "Gemini Thinking — Extended reasoning model"
+  },
+  "gemini-auto": {
+    mode: 4,
+    think: 4,
+    desc: "Gemini Auto — Automatic intelligent routing"
   }
 };
 
 // Known model name → mode mappings from Gemini's internal IDs
 const KNOWN_MODE_MAP: Record<string, number> = {
-  // Mode 1 = Flash models
-  "gemini-2.5-flash": 1,
-  "gemini-2.0-flash": 1,
-  "gemini-3-flash-preview": 1,
   "gemini-flash": 1,
-
-  // Mode 2 = Flash Thinking models (deep thinking)
-  "gemini-2.5-flash-thinking": 2,
-  "gemini-2.0-flash-thinking": 2,
-  "gemini-flash-thinking": 2,
   "gemini-thinking": 2,
-
-  // Mode 3 = Pro models (advanced reasoning)
-  "gemini-2.5-pro": 3,
-  "gemini-2.0-pro": 3,
-  "gemini-3-pro-preview": 3,
   "gemini-advanced": 3,
   "gemini-pro": 3,
-
-  // Mode 4 = Auto selection
   "gemini-auto": 4
 };
 
 // Thinking mode: 0 = extended thinking enabled, 4 = normal (no thinking)
 const THINKING_MODE_MAP: Record<string, number> = {
-  "gemini-2.5-flash-thinking": 0,
-  "gemini-2.0-flash-thinking": 0,
-  "gemini-flash-thinking": 0,
   "gemini-thinking": 0
 };
 
@@ -170,7 +130,7 @@ function parseModelsFromHtml(html: string): Record<string, ModelConfig> | null {
   const models: Record<string, ModelConfig> = {};
 
   try {
-    const modelNameRegex = /["'](?:models\/)?(gemini-[\w.-]+)["']/gi;
+    const modelNameRegex = /(?:\\*["'])(gemini-[\w.-]+)(?:\\*["'])/gi;
     const foundModelNames = new Set<string>();
     let match;
 

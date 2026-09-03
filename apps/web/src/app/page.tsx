@@ -56,19 +56,8 @@ export default function Home() {
   // Upstream Connection state
   const [gatewayStatus, setGatewayStatus] = useState<"online" | "offline" | "checking">("checking");
   const [gatewayUrl, setGatewayUrl] = useState("http://127.0.0.1:8081");
-  const [models, setModels] = useState<string[]>([
-    "gemini-3.7-flash",
-    "gemini-3.7-flash-thinking",
-    "gemini-3.7-pro",
-    "gemini-3.5-flash",
-    "gemini-3.5-flash-thinking",
-    "gemini-3.5-flash-thinking-lite",
-    "gemini-3.1-pro",
-    "gemini-deep-research",
-    "gemini-auto",
-    "gemini-flash-lite"
-  ]);
-  const [selectedModel, setSelectedModel] = useState("gemini-3.7-flash");
+  const [models, setModels] = useState<string[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string>("");
 
   // Dashboard Stats state
   const [stats, setStats] = useState({
@@ -132,7 +121,11 @@ export default function Home() {
       if (res.ok) {
         const data = await res.json();
         if (data.data && Array.isArray(data.data)) {
-          setModels(data.data.map((m: any) => m.id));
+          const list: string[] = data.data.map((m: any) => m.id);
+          if (list.length > 0) {
+            setModels(list);
+            setSelectedModel((prev) => (prev && list.includes(prev) ? prev : list[0]));
+          }
         }
       }
     } catch {}
