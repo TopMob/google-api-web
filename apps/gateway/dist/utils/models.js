@@ -2,104 +2,77 @@ import https from "https";
 import { loadCookie, makeSapisidHash } from "./cookie.js";
 import { AUTH_USER } from "../config.js";
 import { logger } from "../logger.js";
-// Modern Gemini 3.x Models Lineup
+// Real, currently active Gemini models lineup
 const FALLBACK_MODELS = {
-  // ── Gemini 3.7 Series (Latest Generation) ─────────────────────────
-  "gemini-3.7-flash": {
+  "gemini-2.5-flash": {
     mode: 1,
     think: 4,
-    desc: "Gemini 3.7 Flash — High performance hybrid reasoning model"
+    desc: "Gemini 2.5 Flash — Fast, high-efficiency hybrid reasoning model (Recommended)"
   },
-  "gemini-3.7-flash-thinking": {
+  "gemini-2.5-flash-thinking": {
     mode: 2,
     think: 0,
-    desc: "Gemini 3.7 Flash Thinking — Dynamic reasoning with extended depth"
+    desc: "Gemini 2.5 Flash Thinking — Dynamic reasoning with extended depth"
   },
-  "gemini-3.7-pro": {
+  "gemini-2.5-pro": {
     mode: 3,
     think: 4,
-    desc: "Gemini 3.7 Pro — Flagship professional intelligence"
+    desc: "Gemini 2.5 Pro — Flagship advanced reasoning & coding intelligence"
   },
-  // ── Gemini 3.5 Series ────────────────────────────────────────────
-  "gemini-3.5-flash": {
+  "gemini-2.0-flash": {
     mode: 1,
     think: 4,
-    desc: "Gemini 3.5 Flash — Fast general-purpose conversational model"
+    desc: "Gemini 2.0 Flash — High-speed general conversational model"
   },
-  "gemini-3.5-flash-thinking": {
-    mode: 2,
-    think: 0,
-    desc: "Gemini 3.5 Flash Thinking — Deep thinking mode (~20k output tokens)"
-  },
-  "gemini-3.5-flash-thinking-lite": {
-    mode: 5,
-    think: 0,
-    desc: "Gemini 3.5 Flash Thinking Lite — Adaptive depth thinking"
-  },
-  // ── Gemini 3.1 & Pro Series ──────────────────────────────────────
-  "gemini-3.1-pro": {
-    mode: 3,
-    think: 4,
-    desc: "Gemini 3.1 Pro — High complexity reasoning"
-  },
-  "gemini-deep-research": {
-    mode: 3,
-    think: 0,
-    desc: "Gemini Deep Research — Autonomous multi-step analysis"
-  },
-  // ── Auto & Utilities ─────────────────────────────────────────────
   "gemini-auto": {
     mode: 4,
     think: 4,
-    desc: "Gemini Auto — Automatic intelligent routing"
+    desc: "Gemini Auto — Automatic intelligent routing based on task complexity"
   },
-  "gemini-flash-lite": {
-    mode: 6,
+  // Convenient aliases
+  "gemini-flash": {
+    mode: 1,
     think: 4,
-    desc: "Gemini Flash Lite — Instant response latency"
+    desc: "Gemini Flash — Alias for latest flash model"
+  },
+  "gemini-pro": {
+    mode: 3,
+    think: 4,
+    desc: "Gemini Pro — Alias for latest pro model"
+  },
+  "gemini-thinking": {
+    mode: 2,
+    think: 0,
+    desc: "Gemini Thinking — Alias for latest reasoning model"
   }
 };
 // Known model name → mode mappings from Gemini's internal IDs
 const KNOWN_MODE_MAP = {
   // Mode 1 = Flash models
-  "gemini-3.7-flash": 1,
-  "gemini-3.5-flash": 1,
   "gemini-2.5-flash": 1,
   "gemini-2.0-flash": 1,
+  "gemini-3-flash-preview": 1,
   "gemini-flash": 1,
   // Mode 2 = Flash Thinking models (deep thinking)
-  "gemini-3.7-flash-thinking": 2,
-  "gemini-3.5-flash-thinking": 2,
   "gemini-2.5-flash-thinking": 2,
   "gemini-2.0-flash-thinking": 2,
   "gemini-flash-thinking": 2,
+  "gemini-thinking": 2,
   // Mode 3 = Pro models (advanced reasoning)
-  "gemini-3.7-pro": 3,
-  "gemini-3.1-pro": 3,
   "gemini-2.5-pro": 3,
   "gemini-2.0-pro": 3,
-  "gemini-deep-research": 3,
+  "gemini-3-pro-preview": 3,
   "gemini-advanced": 3,
   "gemini-pro": 3,
   // Mode 4 = Auto selection
-  "gemini-auto": 4,
-  // Mode 5 = Thinking lite
-  "gemini-3.5-flash-thinking-lite": 5,
-  "gemini-3.7-flash-thinking-lite": 5,
-  "gemini-2.5-flash-thinking-lite": 5,
-  "gemini-flash-thinking-lite": 5,
-  // Mode 6 = Flash lite
-  "gemini-flash-lite": 6,
-  "gemini-2.0-flash-lite": 6
+  "gemini-auto": 4
 };
 // Thinking mode: 0 = extended thinking enabled, 4 = normal (no thinking)
 const THINKING_MODE_MAP = {
-  "gemini-3.7-flash-thinking": 0,
-  "gemini-3.5-flash-thinking": 0,
-  "gemini-3.5-flash-thinking-lite": 0,
-  "gemini-3.7-flash-thinking-lite": 0,
-  "gemini-deep-research": 0,
-  "gemini-flash-thinking": 0
+  "gemini-2.5-flash-thinking": 0,
+  "gemini-2.0-flash-thinking": 0,
+  "gemini-flash-thinking": 0,
+  "gemini-thinking": 0
 };
 let cachedModels = null;
 let cacheTimestamp = 0;
@@ -138,7 +111,20 @@ async function fetchModelsFromGemini(cookieStr, sapisid) {
           res.on("end", () => {
             const parsed = parseModelsFromHtml(html);
             if (parsed && Object.keys(parsed).length > 0) {
-              resolve({ ...FALLBACK_MODELS, ...parsed });
+              const liveModels = { ...parsed };
+              if (!liveModels["gemini-flash"]) {
+                liveModels["gemini-flash"] = { mode: 1, think: 4, desc: "Gemini Flash (Latest)" };
+              }
+              if (!liveModels["gemini-pro"]) {
+                liveModels["gemini-pro"] = { mode: 3, think: 4, desc: "Gemini Pro (Latest)" };
+              }
+              if (!liveModels["gemini-thinking"]) {
+                liveModels["gemini-thinking"] = { mode: 2, think: 0, desc: "Gemini Thinking (Latest)" };
+              }
+              if (!liveModels["gemini-auto"]) {
+                liveModels["gemini-auto"] = { mode: 4, think: 4, desc: "Gemini Auto Routing" };
+              }
+              resolve(liveModels);
             } else {
               resolve(null);
             }
@@ -166,20 +152,28 @@ function parseModelsFromHtml(html) {
     let match;
     while ((match = modelNameRegex.exec(html)) !== null) {
       const name = match[1].toLowerCase();
+      // Skip non-conversational components and UI assets
       if (
         name.includes("embedding") ||
         name.includes("test") ||
-        (name.includes("exp-") && !name.includes("thinking") && !name.includes("pro-exp")) ||
         name.includes("internal") ||
         name.includes("vision") ||
         name.includes("imagen") ||
         name.includes("grounding") ||
-        name.includes("1.5") ||
-        name.includes("2.0")
+        name.includes("mac-panel") ||
+        name.includes("while-signed-out") ||
+        name.includes("progress-banner") ||
+        name.includes("lesson-tile") ||
+        name.includes("top-priority") ||
+        name.includes("-tts") ||
+        name.includes("-image")
       ) {
         continue;
       }
-      foundModelNames.add(name);
+      // Match legitimate LLM model naming patterns
+      if (/gemini-(?:[0-9]+(?:\.[0-9]+)?-(?:flash|pro)|[0-9]+-(?:flash|pro)|flash|pro|auto|advanced)/i.test(name)) {
+        foundModelNames.add(name);
+      }
     }
     if (foundModelNames.size === 0) {
       return null;
@@ -189,6 +183,15 @@ function parseModelsFromHtml(html) {
       const think = THINKING_MODE_MAP[name] ?? (name.includes("thinking") ? 0 : 4);
       const desc = generateDescription(name);
       models[name] = { mode, think, desc };
+      // Add thinking variant for reasoning models
+      if (!name.includes("thinking") && (name.includes("flash") || name.includes("pro"))) {
+        const thinkingName = `${name}-thinking`;
+        models[thinkingName] = {
+          mode: 2,
+          think: 0,
+          desc: `${desc} (Extended Thinking)`
+        };
+      }
     }
     return Object.keys(models).length > 0 ? models : null;
   } catch {

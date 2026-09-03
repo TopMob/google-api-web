@@ -94,13 +94,24 @@ export function parseRawCookieString(content: string): {
       const l = line.trim();
       if (!l || l.startsWith("#")) continue;
 
-      // Check for Netscape cookie format (tab-separated with 7 fields)
+      // Check for tab-separated formats
       if (l.includes("\t")) {
         const parts = l.split("\t");
-        if (parts.length >= 7) {
-          const name = parts[5].trim();
-          const value = parts[6].trim();
+        // 1. Netscape cookie format (tab-separated: domain, flag, path, secure, expiration, name, value)
+        if (parts.length >= 7 && (parts[1] === "TRUE" || parts[1] === "FALSE")) {
+          const name = parts[5]?.trim();
+          const value = parts[6]?.trim();
           if (name && value) {
+            cookiesObj[name] = value;
+            continue;
+          }
+        }
+
+        // 2. DevTools Table Copy format (Name, Value, Domain, Path, ...)
+        if (parts.length >= 2) {
+          const name = parts[0]?.trim();
+          const value = parts[1]?.trim();
+          if (name && value && /^[a-zA-Z0-9_.-]+$/.test(name) && !name.includes(".")) {
             cookiesObj[name] = value;
             continue;
           }

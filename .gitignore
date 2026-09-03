@@ -43,6 +43,11 @@ next-env.d.ts
 # cookies
 /cookies/*
 !/cookies/.gitkeep
+кука
+cookie.txt
+cookies.txt
+*.cookie
+*.cookies
 
 # local store data
 data/
