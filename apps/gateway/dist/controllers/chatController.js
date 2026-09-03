@@ -76,7 +76,13 @@ export async function chatCompletionController(request, reply) {
       geminiStreamGenerate(prompt, cfg.mode, cfg.think, customCookie, abortController.signal)
     );
     const text = extractResponseText(raw);
-    const { cleanText, toolCalls } = parseToolCalls(text);
+    let cleanText = text;
+    let toolCalls = null;
+    if (req.tools && req.tools.length > 0) {
+      const parsed = parseToolCalls(text);
+      cleanText = parsed.cleanText;
+      toolCalls = parsed.toolCalls;
+    }
     let contentText = cleanText;
     if (req.response_format?.type === "json_object" && contentText) {
       contentText = cleanJsonResponse(contentText);

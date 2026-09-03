@@ -1,4 +1,10 @@
+import { ProxyAgent } from "undici";
 import { logger } from "../logger.js";
+const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy;
+const proxyAgent = proxyUrl ? new ProxyAgent(proxyUrl) : undefined;
+if (proxyAgent) {
+  logger.info(`Configured HTTP proxy dispatcher for Gemini upstream requests: ${proxyUrl}`);
+}
 export async function fetchWithRetry(url, options, retryOptions = {}) {
   const {
     maxRetries = 3,
@@ -22,16 +28,25 @@ export async function fetchWithRetry(url, options, retryOptions = {}) {
       options.signal.addEventListener("abort", onAbort);
     }
     try {
-      const response = await fetch(url, {
+      const fetchOpts = {
         ...options,
         signal: controller.signal
-      });
+      };
+      if (proxyAgent) {
+        fetchOpts.dispatcher = proxyAgent;
+      }
+      const response = await fetch(url, fetchOpts);
       clearTimeout(timeoutId);
       if (options.signal) {
         options.signal.removeEventListener("abort", onAbort);
       }
       if (!response.ok) {
-        throw new Error(`Upstream returned ${response.status} ${response.statusText}`);
+        const err = new Error(`Upstream returned ${response.status} ${response.statusText}`);
+        // Do not retry 4xx client/auth errors (e.g. invalid cookie, bad prompt, forbidden)
+        if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+          throw err;
+        }
+        throw err;
       }
       return response;
     } catch (e) {
@@ -44,10 +59,35 @@ export async function fetchWithRetry(url, options, retryOptions = {}) {
       if (options.signal?.aborted) {
         throw e;
       }
+      // Do not retry 4xx errors
+      const msg = e.message || "";
+      if (
+        msg.includes("returned 400") ||
+        msg.includes("returned 401") ||
+        msg.includes("returned 403") ||
+        msg.includes("returned 404")
+      ) {
+        throw e;
+      }
       if (attempt < maxRetries - 1) {
         // Exponential backoff with jitter
         const jitter = Math.random() * 200;
-        await new Promise((resolve) => setTimeout(resolve, delay + jitter));
+        await new Promise((resolve) => {
+          const timer = setTimeout(resolve, delay + jitter);
+          if (options.signal) {
+            options.signal.addEventListener(
+              "abort",
+              () => {
+                clearTimeout(timer);
+                resolve(null);
+              },
+              { once: true }
+            );
+          }
+        });
+        if (options.signal?.aborted) {
+          throw options.signal.reason || new Error("Aborted");
+        }
         delay = Math.min(delay * 2, maxDelayMs);
         logger.warn({ attempt, err: e.message }, "Fetch failed, retrying...");
       }

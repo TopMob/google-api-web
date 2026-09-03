@@ -22,7 +22,11 @@ export class CircuitBreaker {
 
     try {
       const result = await action();
-      if (this.state === "HALF-OPEN") {
+      if (this.state === "CLOSED") {
+        if (this.failures > 0) {
+          this.failures = 0;
+        }
+      } else if (this.state === "HALF-OPEN") {
         this.consecutiveSuccesses++;
         if (this.consecutiveSuccesses >= this.successThreshold) {
           this.state = "CLOSED";
@@ -40,8 +44,14 @@ export class CircuitBreaker {
         msg.includes("returned 404");
 
       if (!isClientError) {
-        this.failures++;
-        this.lastFailureTime = Date.now();
+        const now = Date.now();
+        // If last failure was more than 2 minutes ago, reset failure counter
+        if (now - this.lastFailureTime > 120000) {
+          this.failures = 1;
+        } else {
+          this.failures++;
+        }
+        this.lastFailureTime = now;
         logger.warn(
           { failures: this.failures, state: this.state },
           "Upstream call failed, incrementing circuit breaker failure count"

@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 export async function GET(req: NextRequest) {
   try {
     const gatewayUrl = process.env.GATEWAY_URL || "http://127.0.0.1:8081";
-    const res = await fetch(gatewayUrl, { signal: AbortSignal.timeout(1500) });
+    const res = await fetch(gatewayUrl, { signal: AbortSignal.timeout(5000) });
     if (res.ok) {
       return NextResponse.json({ status: "online", gatewayUrl });
     }

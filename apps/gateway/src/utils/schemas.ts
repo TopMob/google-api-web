@@ -5,9 +5,10 @@ export const chatCompletionSchema = z.object({
   messages: z
     .array(
       z.object({
-        role: z.enum(["system", "user", "assistant", "tool"]),
+        role: z.enum(["system", "user", "assistant", "tool", "developer", "function"]),
         content: z
           .union([z.string(), z.array(z.any())])
+          .nullable()
           .optional()
           .default(""),
         name: z.string().optional(),
@@ -30,6 +31,7 @@ export const responsesApiSchema = z.object({
   model: z.string().optional().default("gemini-3.5-flash"),
   input: z
     .union([z.string(), z.array(z.any())])
+    .nullable()
     .optional()
     .default(""),
   instructions: z.string().optional(),

@@ -17,67 +17,7 @@ export interface SessionInfo {
 let cachedSessionInfo: Map<string, SessionInfo> = new Map();
 const SESSION_INFO_TTL_MS = 20 * 60 * 1000; // 20 minutes
 
-export function parseRawCookieString(content: string): {
-  cookieStr: string;
-  sapisid: string | null;
-  cookiesObj: Record<string, string>;
-} {
-  const cookiesObj: Record<string, string> = {};
-  const trimmed = content.trim();
-
-  // Try JSON format
-  if (trimmed.startsWith("{")) {
-    try {
-      const data = JSON.parse(trimmed);
-      if (data.cookie) {
-        return parseRawCookieString(data.cookie);
-      }
-      for (const [k, v] of Object.entries(data)) {
-        if (typeof v === "string") cookiesObj[k] = v;
-      }
-    } catch {}
-  }
-
-  // Parse lines (handles "KEY VALUE", "KEY\tVALUE", "KEY=VALUE", Netscape format)
-  const lines = trimmed.split(/\r?\n/);
-  for (const line of lines) {
-    const l = line.trim();
-    if (!l || l.startsWith("#")) continue;
-
-    // Check for Netscape cookie format (tab-separated with 7 fields)
-    if (l.includes("\t")) {
-      const parts = l.split("\t");
-      if (parts.length >= 7) {
-        const name = parts[5].trim();
-        const value = parts[6].trim();
-        if (name && value) {
-          cookiesObj[name] = value;
-          continue;
-        }
-      }
-    }
-
-    // Check "KEY VALUE", "KEY=VALUE", "KEY: VALUE"
-    const match = l.match(/^([a-zA-Z0-9_.-]+)[=\s:	]+(.+)$/);
-    if (match) {
-      const key = match[1].trim();
-      const val = match[2].trim().replace(/;$/, "");
-      if (key && val) {
-        cookiesObj[key] = val;
-      }
-    }
-  }
-
-  // Fallback to semicolon format if no lines parsed
-  if (Object.keys(cookiesObj).length === 0) {
-    trimmed.split(";").forEach((part) => {
-      const [name, ...valueParts] = part.trim().split("=");
-      if (name && valueParts.length > 0) {
-        cookiesObj[name] = valueParts.join("=");
-      }
-    });
-  }
-
+function buildCookieResult(cookiesObj: Record<string, string>) {
   const cookieStr = Object.entries(cookiesObj)
     .map(([k, v]) => `${k}=${v}`)
     .join("; ");
@@ -90,6 +30,96 @@ export function parseRawCookieString(content: string): {
     null;
 
   return { cookieStr, sapisid, cookiesObj };
+}
+
+export function parseRawCookieString(content: string): {
+  cookieStr: string;
+  sapisid: string | null;
+  cookiesObj: Record<string, string>;
+} {
+  const cookiesObj: Record<string, string> = {};
+  const trimmed = content.trim();
+
+  // Try JSON format (handles JSON objects and Cookie-Editor exported JSON arrays)
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      const data = JSON.parse(trimmed);
+      if (Array.isArray(data)) {
+        for (const item of data) {
+          if (item && typeof item === "object" && item.name && item.value) {
+            cookiesObj[item.name] = item.value;
+          }
+        }
+        if (Object.keys(cookiesObj).length > 0) {
+          return buildCookieResult(cookiesObj);
+        }
+      } else if (typeof data === "object" && data !== null) {
+        if (data.cookie) {
+          return parseRawCookieString(data.cookie);
+        }
+        for (const [k, v] of Object.entries(data)) {
+          if (typeof v === "string") cookiesObj[k] = v;
+        }
+        if (Object.keys(cookiesObj).length > 0) {
+          return buildCookieResult(cookiesObj);
+        }
+      }
+    } catch {}
+  }
+
+  // If content contains semicolons (standard HTTP Cookie header format), split by semicolons
+  if (trimmed.includes(";")) {
+    const parts = trimmed.split(";");
+    for (const part of parts) {
+      const p = part.trim();
+      if (!p) continue;
+      const eqIdx = p.indexOf("=");
+      if (eqIdx > 0) {
+        const key = p
+          .substring(0, eqIdx)
+          .trim()
+          .replace(/^.*[\r\n]+/, "");
+        const val = p.substring(eqIdx + 1).trim();
+        if (key && val) {
+          cookiesObj[key] = val;
+        }
+      }
+    }
+  }
+
+  // If still empty or no standard key/value pairs found, parse lines (Netscape format, "KEY VALUE", "KEY=VALUE")
+  if (Object.keys(cookiesObj).length === 0) {
+    const lines = trimmed.split(/\r?\n/);
+    for (const line of lines) {
+      const l = line.trim();
+      if (!l || l.startsWith("#")) continue;
+
+      // Check for Netscape cookie format (tab-separated with 7 fields)
+      if (l.includes("\t")) {
+        const parts = l.split("\t");
+        if (parts.length >= 7) {
+          const name = parts[5].trim();
+          const value = parts[6].trim();
+          if (name && value) {
+            cookiesObj[name] = value;
+            continue;
+          }
+        }
+      }
+
+      // Check "KEY VALUE", "KEY=VALUE", "KEY: VALUE"
+      const match = l.match(/^([a-zA-Z0-9_.-]+)[=\s:	]+(.+)$/);
+      if (match) {
+        const key = match[1].trim();
+        const val = match[2].trim().replace(/;$/, "");
+        if (key && val) {
+          cookiesObj[key] = val;
+        }
+      }
+    }
+  }
+
+  return buildCookieResult(cookiesObj);
 }
 
 export function loadCookie(): { cookieStr: string; sapisid: string | null } {
@@ -162,7 +192,7 @@ export function parseAndValidateCookie(key: string): { valid: boolean; data?: Ge
   const hasSecureCookie = !!cookiesObj["__Secure-1PSID"];
   const hasClassicCookies = !!(cookiesObj.SID && sapisid);
 
-  if (!hasSecureCookie && !hasClassicCookies && Object.keys(cookiesObj).length === 0) {
+  if (!hasSecureCookie && !hasClassicCookies) {
     return {
       valid: false,
       error: "Invalid cookie format. Required: __Secure-1PSID or (SID + SAPISID)"
@@ -215,7 +245,8 @@ export async function getGeminiSessionInfo(
         path: `${prefix}/app`,
         method: "GET",
         headers,
-        maxHeaderSize: 65536
+        maxHeaderSize: 65536,
+        timeout: 8000
       },
       (res) => {
         let html = "";
@@ -232,6 +263,12 @@ export async function getGeminiSessionInfo(
         });
       }
     );
+
+    req.on("timeout", () => {
+      req.destroy();
+      logger.warn("Gemini session info request timed out");
+      resolve({ bl: "boq_assistant-bard-web-server_20260827.05_p0", sn: "" });
+    });
 
     req.on("error", (e) => {
       logger.error({ err: e }, "Failed to fetch Gemini session info");

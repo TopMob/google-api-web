@@ -94,11 +94,11 @@ export function messagesToPrompt(messages, tools, responseFormat) {
     let content = msg.content || "";
     if (Array.isArray(content)) {
       content = content
-        .filter((c) => c.type === "text" || c.type === "input_text")
+        .filter((c) => c && (c.type === "text" || c.type === "input_text"))
         .map((c) => c.text || "")
         .join(" ");
     }
-    if (role === "system") {
+    if (role === "system" || role === "developer") {
       parts.push(`[System instruction]: ${content}`);
     } else if (role === "assistant") {
       if (msg.tool_calls) {
@@ -116,7 +116,7 @@ export function messagesToPrompt(messages, tools, responseFormat) {
       } else {
         parts.push(`[Assistant]: ${content}`);
       }
-    } else if (role === "tool") {
+    } else if (role === "tool" || role === "function") {
       const toolName = msg.name || msg.tool_call_id || "";
       const toolResult = typeof content === "object" ? JSON.stringify(content) : content;
       parts.push(`[Tool result for ${toolName}]: ${toolResult}`);
@@ -128,18 +128,17 @@ export function messagesToPrompt(messages, tools, responseFormat) {
 }
 export function parseToolCalls(text) {
   const toolCalls = [];
-  const regex = /```(?:tool_call|json)?\s*([\s\S]*?)\s*```/g;
+  const regex = /```tool_call\s*([\s\S]*?)\s*```/gi;
   const matches = [...text.matchAll(regex)];
   for (const match of matches) {
     let jsonStr = match[1].trim();
-    if (!jsonStr.includes('"name"')) continue; // likely just a regular code block
     try {
       try {
         jsonStr = jsonrepair(jsonStr);
       } catch (e) {} // ignore jsonrepair failure, try original
       const data = JSON.parse(jsonStr);
       if (data.name) {
-        const args = data.arguments || {};
+        const args = data.arguments || data.parameters || {};
         const argumentsStr = typeof args === "string" ? args : JSON.stringify(args);
         toolCalls.push({
           id: `call_${Math.random().toString(36).substring(2, 10)}`,
@@ -152,18 +151,26 @@ export function parseToolCalls(text) {
       logger.debug({ err: errMessage, jsonStr }, "Failed to parse tool call block");
     }
   }
-  // Fallback: If no backticks were used but the response is pure JSON tool call
-  if (toolCalls.length === 0 && text.trim().startsWith("{") && text.includes('"name"')) {
+  // Fallback: If no tool_call backticks were used but the entire response is a pure JSON tool call with both name and arguments
+  if (
+    toolCalls.length === 0 &&
+    text.trim().startsWith("{") &&
+    text.includes('"name"') &&
+    (text.includes('"arguments"') || text.includes('"parameters"'))
+  ) {
     try {
       const jsonStr = jsonrepair(text.trim());
       const data = JSON.parse(jsonStr);
-      if (data.name) {
+      if (data.name && (data.arguments !== undefined || data.parameters !== undefined)) {
         toolCalls.push({
           id: `call_${Math.random().toString(36).substring(2, 10)}`,
           type: "function",
           function: {
             name: data.name,
-            arguments: typeof data.arguments === "string" ? data.arguments : JSON.stringify(data.arguments || {})
+            arguments:
+              typeof data.arguments === "string"
+                ? data.arguments
+                : JSON.stringify(data.arguments || data.parameters || {})
           }
         });
         return { cleanText: "", toolCalls };

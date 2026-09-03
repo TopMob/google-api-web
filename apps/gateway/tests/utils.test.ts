@@ -8,6 +8,22 @@ import {
   cleanJsonResponse
 } from "../src/utils/parsers.js";
 import { parseAndValidateCookie } from "../src/utils/cookie.js";
+import { chatCompletionSchema } from "../src/utils/schemas.js";
+
+describe("Schema Utilities", () => {
+  it("should accept developer role and null content in chat completions schema", () => {
+    const payload = {
+      model: "gemini-3.5-flash",
+      messages: [
+        { role: "developer", content: "system prompt" },
+        { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function" }] },
+        { role: "tool", content: "result" }
+      ]
+    };
+    const result = chatCompletionSchema.safeParse(payload);
+    expect(result.success).toBe(true);
+  });
+});
 
 describe("Parser Utilities", () => {
   it("should clean gemini python/js code execution blocks", () => {
@@ -35,16 +51,25 @@ describe("Parser Utilities", () => {
     expect(JSON.parse(result.toolCalls![0].function.arguments).location).toBe("London");
   });
 
-  it("should convert OpenAI messages to Gemini text prompt format", () => {
-    const messages = [
-      { role: "system", content: "You are helpful" },
+  it("should not falsely treat normal markdown json blocks as tool calls", () => {
+    const input = 'Here is the data:\n```json\n{"name": "Alice", "role": "admin"}\n```\nDone!';
+    const result = parseToolCalls(input);
+    expect(result.toolCalls).toBeNull();
+    expect(result.cleanText).toContain('{"name": "Alice", "role": "admin"}');
+  });
+
+  it("should convert OpenAI messages to Gemini text prompt format including developer and function roles", () => {
+    const messages: any[] = [
+      { role: "developer", content: "You are helpful" },
       { role: "user", content: "Hello" },
-      { role: "assistant", content: "Hi there!" }
+      { role: "assistant", content: "Hi there!" },
+      { role: "function", name: "get_weather", content: "sunny" }
     ];
     const prompt = messagesToPrompt(messages);
     expect(prompt).toContain("[System instruction]: You are helpful");
     expect(prompt).toContain("Hello");
     expect(prompt).toContain("[Assistant]: Hi there!");
+    expect(prompt).toContain("[Tool result for get_weather]: sunny");
   });
 
   it("should clean json responses from markdown and think blocks", () => {

@@ -152,7 +152,8 @@ async function fetchModelsFromGemini(
           path: `${prefix}/app`,
           method: "GET",
           headers,
-          maxHeaderSize: 65536
+          maxHeaderSize: 65536,
+          timeout: 8000
         },
         (res) => {
           let html = "";
@@ -167,6 +168,11 @@ async function fetchModelsFromGemini(
           });
         }
       );
+
+      req.on("timeout", () => {
+        req.destroy();
+        resolve(null);
+      });
 
       req.on("error", () => {
         resolve(null);

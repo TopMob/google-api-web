@@ -109,15 +109,15 @@ export default function PlaygroundTab({
               placeholder={
                 !mounted || gatewayStatus === "online"
                   ? "Enter query to pass upstream..."
-                  : "Gateway offline. Awaiting node link..."
+                  : "Gateway may be offline. You can still test query..."
               }
-              disabled={!mounted ? false : isLoading || gatewayStatus !== "online"}
+              disabled={!mounted ? false : isLoading}
               suppressHydrationWarning
               className="flex-grow bg-transparent border-0 outline-none text-xs font-mono px-3 py-2 text-zinc-200 placeholder-zinc-600 disabled:opacity-40"
             />
             <button
               type="submit"
-              disabled={!mounted ? false : isLoading || !input.trim() || gatewayStatus !== "online"}
+              disabled={!mounted ? false : isLoading || !input.trim()}
               suppressHydrationWarning
               className="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/20 hover:border-cyan-500/40 rounded px-4 py-2 text-xs font-mono transition duration-150 disabled:opacity-20 shrink-0"
             >

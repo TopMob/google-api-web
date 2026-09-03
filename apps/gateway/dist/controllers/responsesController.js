@@ -116,7 +116,13 @@ export async function responsesApiController(request, reply) {
       geminiStreamGenerate(prompt, cfg.mode, cfg.think, customCookie, abortController.signal)
     );
     const text = extractResponseText(raw);
-    const { cleanText, toolCalls } = parseToolCalls(text);
+    let cleanText = text;
+    let toolCalls = null;
+    if (tools && tools.length > 0) {
+      const parsed = parseToolCalls(text);
+      cleanText = parsed.cleanText;
+      toolCalls = parsed.toolCalls;
+    }
     const rid = `resp_${crypto.randomBytes(8).toString("hex")}`;
     const mid = `msg_${crypto.randomBytes(6).toString("hex")}`;
     const output = [];

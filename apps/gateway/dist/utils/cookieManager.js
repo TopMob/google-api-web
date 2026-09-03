@@ -115,29 +115,13 @@ export async function getCookieStatus() {
  * when run on gemini.google.com.
  */
 function generateBookmarklet() {
-  const cookieNames = REQUIRED_COOKIES.map((c) => `"${c.name}"`).join(",");
-  // This bookmarklet should be run while on gemini.google.com
   const code = `javascript:void(function(){
-    var needed=[${cookieNames}];
     var all=document.cookie;
     var parts=all.split(";").map(function(s){return s.trim()});
-    var found=[];
-    parts.forEach(function(p){
-      var n=p.split("=")[0];
-      if(needed.indexOf(n)>=0||n==="SID"||n==="HSID"||n==="SSID"||n==="APISID"||n==="__Secure-1PAPISID"){
-        found.push(p);
-      }
-    });
+    var found=parts.filter(function(p){return /^(SAPISID|APISID|__Secure-1PAPISID|NID|1P_JAR)/i.test(p)});
     var result=found.join("; ");
-    if(result){
-      navigator.clipboard.writeText(result).then(function(){
-        alert("Cookies copied!\\n\\n"+found.length+" cookies extracted.\\nPaste them in the gateway Cookie Manager.");
-      }).catch(function(){
-        prompt("Copy these cookies:",result);
-      });
-    }else{
-      alert("No Gemini cookies found!\\nMake sure you are on gemini.google.com and logged in.");
-    }
+    alert("Notice: Google sets __Secure-1PSID and SID as HttpOnly, so they cannot be extracted via JavaScript.\\n\\nPlease export cookies using DevTools (F12 -> Application -> Cookies) or the Cookie-Editor extension.");
+    if(result){navigator.clipboard.writeText(result);}
   })()`;
   return code.replace(/\n\s*/g, "");
 }

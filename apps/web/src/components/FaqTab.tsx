@@ -683,55 +683,74 @@ models = [${modelsList}]`;
                 need your Google session cookies. Use the quick 1-click bookmarklet or paste them directly:
               </p>
 
-              {/* Fast 1-Click Bookmarklet */}
-              <div className="p-3.5 bg-[#0e0f13] border border-cyan-500/20 rounded space-y-2.5">
+              {/* Reliable Cookie Extraction Guide */}
+              <div className="p-3.5 bg-[#0e0f13] border border-cyan-500/20 rounded space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-bold text-cyan-300 uppercase tracking-wide flex items-center gap-1.5">
-                    ⚡ Quick Bookmarklet (1-Click Auto-Copy)
+                    🍪 How to extract Gemini Cookies (DevTools or Extension)
+                  </span>
+                  <span className="text-[9px] bg-amber-950/40 text-amber-400 border border-amber-800/40 px-2 py-0.5 rounded font-mono">
+                    HttpOnly Notice
                   </span>
                 </div>
-                <p className="text-[10px] text-zinc-400 leading-relaxed">
-                  1. Open{" "}
-                  <a
-                    href="https://gemini.google.com"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-cyan-400 underline"
-                  >
-                    gemini.google.com
-                  </a>{" "}
-                  in your browser.
-                  <br />
-                  2. Open DevTools Console (
-                  <kbd className="px-1 py-0.5 bg-zinc-900 border border-zinc-800 rounded text-[9px]">F12</kbd> →
-                  Console) or create a Bookmark with the code below.
-                  <br />
-                  3. Run it — all required cookies will be copied to your clipboard instantly!
-                </p>
-                <div className="relative bg-[#07080a] border border-zinc-800 rounded p-2.5 text-[9px] text-zinc-400 break-all select-all flex justify-between items-center gap-3">
-                  <span className="truncate font-mono">
-                    javascript:void(function()
-                    {`var c=document.cookie.split(";").map(function(s){return s.trim()}).filter(function(s){return /^(SID|HSID|SSID|APISID|SAPISID|__Secure-)/i.test(s)}).join("; ");navigator.clipboard.writeText(c).then(function(){alert("✅ "+c.split(";").length+" Gemini cookies copied! Paste them into the gateway UI.")});`}
-                    )()
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      copyGuideText(
-                        `javascript:void(function(){var c=document.cookie.split(";").map(function(s){return s.trim()}).filter(function(s){return /^(SID|HSID|SSID|APISID|SAPISID|__Secure-)/i.test(s)}).join("; ");navigator.clipboard.writeText(c).then(function(){alert("✅ "+c.split(";").length+" Gemini cookies copied! Paste them into the gateway UI.")});})()`,
-                        "bookmarklet-code"
-                      )
-                    }
-                    className="text-cyan-400 hover:text-cyan-300 transition shrink-0 px-2 py-1 bg-cyan-950/40 border border-cyan-800/40 rounded flex items-center gap-1 text-[10px]"
-                    title="Copy 1-click extractor script"
-                  >
-                    {copiedId === "bookmarklet-code" ? (
-                      <Check size={12} className="text-emerald-400" />
-                    ) : (
-                      <Copy size={12} />
-                    )}
-                    <span>Copy Script</span>
-                  </button>
+                <div className="text-[10px] text-zinc-400 leading-relaxed space-y-2">
+                  <p className="text-zinc-300">
+                    Google flags essential tokens (<code className="text-cyan-400 font-mono">__Secure-1PSID</code> and{" "}
+                    <code className="text-cyan-400 font-mono">SID</code>) with the{" "}
+                    <strong className="text-zinc-200">HttpOnly</strong> flag, meaning browser console scripts cannot
+                    read them. Use one of two fast methods:
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-1">
+                    <div className="p-2.5 bg-[#07080a] border border-zinc-800 rounded space-y-1">
+                      <span className="font-bold text-zinc-200 block text-[10px]">
+                        Option A: Cookie-Editor Extension (1-Click)
+                      </span>
+                      <p className="text-[9px] text-zinc-400 leading-normal">
+                        1. Install the free <strong className="text-zinc-300">Cookie-Editor</strong> extension
+                        (Chrome/Firefox/Edge).
+                        <br />
+                        2. Open{" "}
+                        <a
+                          href="https://gemini.google.com"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-cyan-400 underline"
+                        >
+                          gemini.google.com
+                        </a>
+                        .<br />
+                        3. Open Cookie-Editor ➔ click <strong className="text-zinc-300">Export</strong> ➔ choose{" "}
+                        <strong className="text-zinc-300">Header String</strong> (or JSON).
+                        <br />
+                        4. Paste the result into the box below!
+                      </p>
+                    </div>
+                    <div className="p-2.5 bg-[#07080a] border border-zinc-800 rounded space-y-1">
+                      <span className="font-bold text-zinc-200 block text-[10px]">
+                        Option B: Chrome DevTools (No Extensions)
+                      </span>
+                      <p className="text-[9px] text-zinc-400 leading-normal">
+                        1. Open{" "}
+                        <a
+                          href="https://gemini.google.com"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-cyan-400 underline"
+                        >
+                          gemini.google.com
+                        </a>{" "}
+                        and press{" "}
+                        <kbd className="px-1 py-0.5 bg-zinc-900 border border-zinc-800 rounded text-[8px]">F12</kbd>.
+                        <br />
+                        2. Go to <strong className="text-zinc-300">Application</strong> (or Storage) ➔{" "}
+                        <strong className="text-zinc-300">Cookies</strong> ➔{" "}
+                        <strong className="text-zinc-300">gemini.google.com</strong>.<br />
+                        3. Or go to <strong className="text-zinc-300">Network</strong>, send any message, click the
+                        request ➔ copy the <strong className="text-zinc-300">Cookie</strong> header from Request
+                        Headers.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
 

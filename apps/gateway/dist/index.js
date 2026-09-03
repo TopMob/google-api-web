@@ -23,8 +23,15 @@ server.setErrorHandler((error, request, reply) => {
 registerRoutes(server);
 async function main() {
   try {
-    // Fetch available models from Gemini on startup
-    await refreshModels();
+    // Fetch available models with safety timeout so server start is never blocked
+    try {
+      await Promise.race([
+        refreshModels(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+      ]);
+    } catch {
+      logger.warn("Initial model refresh timed out or failed, using fallback models");
+    }
     startModelRefreshTimer();
     await server.listen({ port: PORT, host: HOST });
     logger.info(`Gateway listening on http://${HOST}:${PORT}`);

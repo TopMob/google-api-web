@@ -12,6 +12,7 @@ services:
       - HOST=0.0.0.0
     volumes:
       - ./cookies:/app/apps/gateway/cookies
+      - ./data:/app/apps/gateway/data
 
   web:
     build:
@@ -22,3 +23,7 @@ services:
     environment:
       - PORT=3000
       - HOST=0.0.0.0
+      - GATEWAY_URL=http://gateway:8081
+    depends_on:
+      - gateway
+
