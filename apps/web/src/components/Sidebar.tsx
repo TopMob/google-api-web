@@ -1,7 +1,8 @@
 "use client";
 
-import React from "react";
-import { Bot, Key, Terminal, HelpCircle } from "lucide-react";
+import React, { useState } from "react";
+import { Bot, Key, Terminal, HelpCircle, Copy, Check } from "lucide-react";
+import { translations, Language } from "../utils/i18n";
 
 interface ApiKey {
   id: string;
@@ -26,6 +27,7 @@ interface SidebarProps {
   playgroundKey: string;
   setPlaygroundKey: (key: string) => void;
   apiKeys: ApiKey[];
+  lang: Language;
 }
 
 export default function Sidebar({
@@ -35,8 +37,33 @@ export default function Sidebar({
   gatewayStatus,
   playgroundKey,
   setPlaygroundKey,
-  apiKeys
+  apiKeys,
+  lang
 }: SidebarProps) {
+  const [copiedGateway, setCopiedGateway] = useState(false);
+  const [copiedKey, setCopiedKey] = useState(false);
+  const t = translations[lang];
+
+  const handleCopyGateway = () => {
+    const url = `${gatewayUrl.replace(/\/$/, "")}/v1`;
+    navigator.clipboard.writeText(url);
+    setCopiedGateway(true);
+    setTimeout(() => setCopiedGateway(false), 2000);
+  };
+
+  const handleCopyKey = () => {
+    if (!playgroundKey) return;
+    navigator.clipboard.writeText(playgroundKey);
+    setCopiedKey(true);
+    setTimeout(() => setCopiedKey(false), 2000);
+  };
+
+  const getStatusLabel = () => {
+    if (gatewayStatus === "online") return t.statusOnline;
+    if (gatewayStatus === "offline") return t.statusOffline;
+    return t.statusChecking;
+  };
+
   return (
     <aside className="w-72 border-r border-zinc-800 bg-[#090a0f] flex flex-col justify-between p-5 select-none shrink-0 font-sans">
       <div className="space-y-7">
@@ -52,20 +79,20 @@ export default function Sidebar({
           </div>
           <div>
             <h1 className="text-xs font-bold tracking-tight text-white font-mono">
-              GEMINI <span className="text-cyan-400">WEB2API</span>
+              {t.brandName} <span className="text-cyan-400">{t.brandSubtitle}</span>
             </h1>
-            <p className="text-[8px] text-zinc-500 font-mono tracking-widest uppercase">Developer Portal</p>
+            <p className="text-[8px] text-zinc-500 font-mono tracking-widest uppercase">{t.portalTitle}</p>
           </div>
         </div>
 
         {/* Navigation Tabs */}
         <div className="space-y-1">
-          <p className="text-[9px] font-mono tracking-widest text-zinc-500 uppercase px-2 mb-2">Workspace</p>
+          <p className="text-[9px] font-mono tracking-widest text-zinc-500 uppercase px-2 mb-2">{t.workspace}</p>
           {[
-            { id: "playground", label: "Playground Chat", icon: Bot },
-            { id: "keys", label: "API Keys", icon: Key },
-            { id: "logs", label: "Real-time Logs", icon: Terminal },
-            { id: "faq", label: "Cookie & Setup", icon: HelpCircle }
+            { id: "playground", label: t.tabPlayground, icon: Bot },
+            { id: "keys", label: t.tabKeys, icon: Key },
+            { id: "logs", label: t.tabLogs, icon: Terminal },
+            { id: "faq", label: t.tabFaq, icon: HelpCircle }
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -88,10 +115,10 @@ export default function Sidebar({
 
         {/* Upstream Status Panel */}
         <div className="space-y-2">
-          <p className="text-[9px] font-mono tracking-widest text-zinc-500 uppercase px-2">Connection Status</p>
+          <p className="text-[9px] font-mono tracking-widest text-zinc-500 uppercase px-2">{t.connectionStatus}</p>
           <div className="p-3 bg-[#0d0e12] border border-zinc-850 rounded font-mono">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] text-zinc-400">Local Gateway</span>
+              <span className="text-[10px] text-zinc-400">{t.localGateway}</span>
               <div className="flex items-center gap-1.5">
                 <span
                   className={`h-1.5 w-1.5 rounded-full ${
@@ -102,17 +129,38 @@ export default function Sidebar({
                         : "bg-amber-500 animate-pulse"
                   }`}
                 />
-                <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-300">{gatewayStatus}</span>
+                <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-300">{getStatusLabel()}</span>
               </div>
             </div>
-            <div className="text-[9px] text-zinc-500 font-mono mt-1 truncate select-all">{gatewayUrl}</div>
+            <div className="flex items-center justify-between mt-1 gap-2">
+              <div className="text-[9px] text-zinc-400 font-mono truncate select-all">
+                {gatewayUrl.replace(/\/$/, "")}/v1
+              </div>
+              <button
+                onClick={handleCopyGateway}
+                className="text-zinc-500 hover:text-cyan-400 p-0.5 transition"
+                title={t.copyGateway}
+              >
+                {copiedGateway ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Footer Playground Key */}
+      {/* Footer Playground Key with Copy */}
       <div className="space-y-2 border-t border-zinc-900 pt-4">
-        <p className="text-[9px] font-mono tracking-widest text-zinc-500 uppercase px-2">Active Bearer Key</p>
+        <div className="flex items-center justify-between px-2">
+          <p className="text-[9px] font-mono tracking-widest text-zinc-500 uppercase">{t.activeBearerKey}</p>
+          <button
+            onClick={handleCopyKey}
+            disabled={!playgroundKey}
+            className="text-zinc-500 hover:text-amber-400 p-0.5 transition disabled:opacity-40"
+            title={t.copyKey}
+          >
+            {copiedKey ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+          </button>
+        </div>
         <div className="relative">
           <select
             value={playgroundKey}

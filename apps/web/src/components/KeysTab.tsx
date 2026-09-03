@@ -2,6 +2,7 @@
 
 import React from "react";
 import { Key, Copy, Check, PlusCircle } from "lucide-react";
+import { translations, Language } from "../utils/i18n";
 
 interface ApiKey {
   id: string;
@@ -28,6 +29,7 @@ interface KeysTabProps {
   handleToggleKey: (id: string, active: boolean) => Promise<void>;
   copiedKey: string | null;
   copyText: (text: string) => void;
+  lang: Language;
 }
 
 export default function KeysTab({
@@ -39,8 +41,11 @@ export default function KeysTab({
   handleCreateKey,
   handleToggleKey,
   copiedKey,
-  copyText
+  copyText,
+  lang
 }: KeysTabProps) {
+  const t = translations[lang];
+
   return (
     <div className="flex-grow overflow-y-auto px-6 py-6 space-y-6 custom-scrollbar font-sans bg-[#07080a]">
       {/* Top Section: Key Generator */}
@@ -48,26 +53,26 @@ export default function KeysTab({
         <div className="bg-[#0b0c0f] border border-zinc-800 rounded p-5 space-y-4">
           <div className="flex items-center gap-2 border-b border-zinc-900 pb-3">
             <Key size={14} className="text-cyan-400" />
-            <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono">Key Issuance Generator</h3>
+            <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono">{t.createKeyTitle}</h3>
           </div>
 
           <form onSubmit={handleCreateKey} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1">
-                <label className="text-[9px] font-mono tracking-wider text-zinc-500 uppercase">
-                  Key Identifier / Label
-                </label>
+                <label className="text-[9px] font-mono tracking-wider text-zinc-500 uppercase">{t.keyNameLabel}</label>
                 <input
                   type="text"
                   value={newKeyName}
                   onChange={(e) => setNewKeyName(e.target.value)}
-                  placeholder="e.g. CLI Client, Localhost-test..."
+                  placeholder={t.keyNamePlaceholder}
                   className="w-full bg-[#0e0f13] border border-zinc-850 focus:border-zinc-700 rounded px-3 py-2 text-xs font-mono text-zinc-300 outline-none transition"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="text-[9px] font-mono tracking-wider text-zinc-500 uppercase">Validity Period</label>
+                <label className="text-[9px] font-mono tracking-wider text-zinc-500 uppercase">
+                  {t.expirationLabel}
+                </label>
                 <div className="relative">
                   <select
                     value={newKeyExpiration}
@@ -75,22 +80,22 @@ export default function KeysTab({
                     className="w-full bg-[#0e0f13] border border-zinc-850 focus:border-zinc-700 rounded px-3 py-2 text-xs font-mono text-zinc-300 outline-none transition cursor-pointer appearance-none"
                   >
                     <option value="never" className="bg-[#090a0f] font-mono">
-                      Never Expire
+                      {t.expNever}
                     </option>
                     <option value="1h" className="bg-[#090a0f] font-mono">
-                      1 Hour
+                      {t.exp1h}
                     </option>
                     <option value="24h" className="bg-[#090a0f] font-mono">
-                      24 Hours
+                      {t.exp24h}
                     </option>
                     <option value="7d" className="bg-[#090a0f] font-mono">
-                      7 Days
+                      {t.exp7d}
                     </option>
                     <option value="30d" className="bg-[#090a0f] font-mono">
-                      30 Days
+                      {t.exp30d}
                     </option>
                     <option value="90d" className="bg-[#090a0f] font-mono">
-                      90 Days
+                      90 {lang === "ru" ? "дней" : "days"}
                     </option>
                   </select>
                   <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-500">
@@ -107,7 +112,7 @@ export default function KeysTab({
               className="w-full bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/20 hover:border-cyan-500/40 rounded py-2.5 text-xs font-mono transition flex items-center justify-center gap-1.5"
             >
               <PlusCircle size={13} />
-              <span>Issue New API Token</span>
+              <span>{t.btnGenerateKey}</span>
             </button>
           </form>
         </div>
@@ -117,28 +122,26 @@ export default function KeysTab({
       <div className="bg-[#0b0c0f] border border-zinc-800 rounded p-5 space-y-4">
         <div className="flex items-center gap-2 border-b border-zinc-900 pb-3">
           <Key size={14} className="text-cyan-400" />
-          <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono">
-            Active Authentication Keys
-          </h3>
+          <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono">{t.existingKeysTitle}</h3>
         </div>
 
         <div className="overflow-x-auto custom-scrollbar">
           <table className="w-full text-left border-collapse font-mono">
             <thead>
               <tr className="border-b border-zinc-900 text-zinc-500 text-[9px] uppercase tracking-wider">
-                <th className="pb-2.5 pr-4">Token Label</th>
-                <th className="pb-2.5 px-4">Bearer Key Hash</th>
-                <th className="pb-2.5 px-4">Created At</th>
-                <th className="pb-2.5 px-4">Expires At</th>
-                <th className="pb-2.5 px-4">Status</th>
-                <th className="pb-2.5 pl-4 text-right">Actions</th>
+                <th className="pb-2.5 pr-4">{t.thName}</th>
+                <th className="pb-2.5 px-4">{t.thKey}</th>
+                <th className="pb-2.5 px-4">{t.thCreated}</th>
+                <th className="pb-2.5 px-4">{t.thExpires}</th>
+                <th className="pb-2.5 px-4">{t.thStatus}</th>
+                <th className="pb-2.5 pl-4 text-right">{t.thActions}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-900 text-xs">
               {apiKeys.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-8 text-center text-zinc-500 font-mono text-[10px]">
-                    No keys have been issued yet. Configure keys above.
+                    {t.noKeysFound}
                   </td>
                 </tr>
               ) : (
@@ -153,7 +156,7 @@ export default function KeysTab({
                           <button
                             onClick={() => copyText(k.key)}
                             className="text-zinc-500 hover:text-cyan-400 transition shrink-0 p-1 bg-zinc-900/60 border border-zinc-800 rounded"
-                            title="Copy full key"
+                            title={t.copyKey}
                           >
                             {copiedKey === k.key ? (
                               <Check size={11} className="text-emerald-500" />
@@ -167,7 +170,7 @@ export default function KeysTab({
                         {new Date(k.created_at).toLocaleDateString()}
                       </td>
                       <td suppressHydrationWarning className="py-3 px-4 text-zinc-400 text-[11px]">
-                        {k.expires_at ? new Date(k.expires_at).toLocaleString() : "Never"}
+                        {k.expires_at ? new Date(k.expires_at).toLocaleString() : t.expNever}
                       </td>
                       <td className="py-3 px-4">
                         <span
@@ -197,7 +200,13 @@ export default function KeysTab({
                                 : "border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/10"
                           }`}
                         >
-                          {k.active ? "Deactivate" : "Activate"}
+                          {k.active
+                            ? lang === "ru"
+                              ? "Отключить"
+                              : "Deactivate"
+                            : lang === "ru"
+                              ? "Включить"
+                              : "Activate"}
                         </button>
                       </td>
                     </tr>

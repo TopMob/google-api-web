@@ -36,6 +36,7 @@ interface FaqTabProps {
   activeKey: string;
   gatewayUrl: string;
   models: string[];
+  lang?: import("../utils/i18n").Language;
 }
 
 export default function FaqTab({

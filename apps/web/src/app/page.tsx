@@ -7,6 +7,8 @@ import PlaygroundTab from "../components/PlaygroundTab";
 import KeysTab from "../components/KeysTab";
 import LogsTab from "../components/LogsTab";
 import FaqTab from "../components/FaqTab";
+import QuickCopyBar from "../components/QuickCopyBar";
+import { Language } from "../utils/i18n";
 
 interface Message {
   role: "user" | "assistant";
@@ -52,6 +54,25 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<"playground" | "keys" | "logs" | "faq">("playground");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  // Localization state (Russian by default, English secondary)
+  const [lang, setLang] = useState<Language>("ru");
+
+  useEffect(() => {
+    try {
+      const savedLang = localStorage.getItem("gemini_web2api_lang") as Language | null;
+      if (savedLang === "ru" || savedLang === "en") {
+        setLang(savedLang);
+      }
+    } catch {}
+  }, []);
+
+  const handleSetLang = (newLang: Language) => {
+    setLang(newLang);
+    try {
+      localStorage.setItem("gemini_web2api_lang", newLang);
+    } catch {}
+  };
 
   // Upstream Connection state
   const [gatewayStatus, setGatewayStatus] = useState<"online" | "offline" | "checking">("checking");
@@ -425,6 +446,7 @@ export default function Home() {
         playgroundKey={playgroundKey}
         setPlaygroundKey={setPlaygroundKey}
         apiKeys={apiKeys}
+        lang={lang}
       />
 
       {/* Main console content panel */}
@@ -436,7 +458,12 @@ export default function Home() {
           models={models}
           fetchModels={fetchModels}
           stats={stats}
+          lang={lang}
+          setLang={handleSetLang}
         />
+
+        {/* Quick API Copy Hub */}
+        <QuickCopyBar gatewayUrl={gatewayUrl} activeKey={playgroundKey} selectedModel={selectedModel} lang={lang} />
 
         {/* Tab viewports */}
         {activeTab === "playground" && (
@@ -447,6 +474,7 @@ export default function Home() {
             isLoading={isLoading}
             handleSubmit={handleSubmit}
             gatewayStatus={gatewayStatus}
+            lang={lang}
           />
         )}
 
@@ -461,10 +489,11 @@ export default function Home() {
             handleToggleKey={handleToggleKey}
             copiedKey={copiedKey}
             copyText={copyText}
+            lang={lang}
           />
         )}
 
-        {activeTab === "logs" && <LogsTab recentLogs={recentLogs} />}
+        {activeTab === "logs" && <LogsTab recentLogs={recentLogs} lang={lang} />}
 
         {activeTab === "faq" && (
           <FaqTab
@@ -483,6 +512,7 @@ export default function Home() {
             activeKey={playgroundKey}
             gatewayUrl={gatewayUrl}
             models={models}
+            lang={lang}
           />
         )}
       </main>

@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { Send, Bot, User, Sparkles } from "lucide-react";
+import { translations, Language } from "../utils/i18n";
 
 interface Message {
   role: "user" | "assistant";
@@ -15,6 +16,7 @@ interface PlaygroundTabProps {
   isLoading: boolean;
   handleSubmit: (e: React.FormEvent) => Promise<void>;
   gatewayStatus: "online" | "offline" | "checking";
+  lang: Language;
 }
 
 export default function PlaygroundTab({
@@ -23,10 +25,12 @@ export default function PlaygroundTab({
   setInput,
   isLoading,
   handleSubmit,
-  gatewayStatus
+  gatewayStatus,
+  lang
 }: PlaygroundTabProps) {
   const chatBottomRef = useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = useState(false);
+  const t = translations[lang];
 
   useEffect(() => {
     setMounted(true);
@@ -47,11 +51,10 @@ export default function PlaygroundTab({
               <div className="absolute -inset-1 rounded-xl bg-cyan-400/5 blur-md -z-10" />
             </div>
             <div className="space-y-1.5">
-              <h2 className="text-sm font-bold text-white font-mono uppercase tracking-wider">Gateway Playground</h2>
-              <p className="text-[11px] text-zinc-400 leading-relaxed font-mono">
-                Submit raw completions directly to your local Fastify gateway. This playground interacts with the Google
-                Web session using OpenAI schema compatibility.
-              </p>
+              <h2 className="text-sm font-bold text-white font-mono uppercase tracking-wider">
+                {t.playgroundWelcomeTitle}
+              </h2>
+              <p className="text-[11px] text-zinc-400 leading-relaxed font-mono">{t.playgroundWelcomeSubtitle}</p>
             </div>
           </div>
         ) : (
@@ -72,7 +75,7 @@ export default function PlaygroundTab({
                       {isUser ? <User size={12} /> : <Bot size={12} />}
                     </div>
                     <span className="text-[10px] font-mono uppercase tracking-wider font-bold text-zinc-400">
-                      {isUser ? "User Client" : "Gemini Web2API"}
+                      {isUser ? t.userRole : t.botRole}
                     </span>
                   </div>
                   <div className="pl-6 text-xs leading-relaxed text-zinc-200 font-mono whitespace-pre-wrap select-text">
@@ -87,6 +90,7 @@ export default function PlaygroundTab({
                 <span className="h-1.5 w-1.5 bg-cyan-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
                 <span className="h-1.5 w-1.5 bg-cyan-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
                 <span className="h-1.5 w-1.5 bg-cyan-400 rounded-full animate-bounce" />
+                <span className="text-[10px] font-mono text-zinc-500 ml-1">{t.thinkingBadge}</span>
               </div>
             )}
           </div>
@@ -108,7 +112,7 @@ export default function PlaygroundTab({
               onChange={(e) => setInput(e.target.value)}
               placeholder={
                 !mounted || gatewayStatus === "online"
-                  ? "Enter query to pass upstream..."
+                  ? t.inputPlaceholder
                   : "Gateway may be offline. You can still test query..."
               }
               disabled={!mounted ? false : isLoading}
@@ -123,7 +127,7 @@ export default function PlaygroundTab({
             >
               <div className="flex items-center gap-1.5">
                 <Send size={11} />
-                <span>Execute</span>
+                <span>{t.btnSend}</span>
               </div>
             </button>
           </form>

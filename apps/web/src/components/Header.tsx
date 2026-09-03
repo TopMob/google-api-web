@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
-import { Bot, Key, Terminal, HelpCircle, Cpu, RefreshCw, Copy, Check } from "lucide-react";
+import { Bot, Key, Terminal, HelpCircle, Cpu, RefreshCw, Copy, Check, Globe } from "lucide-react";
+import { translations, Language } from "../utils/i18n";
 
 interface HeaderProps {
   activeTab: "playground" | "keys" | "logs" | "faq";
@@ -15,6 +16,8 @@ interface HeaderProps {
     successRate: number;
     activeTime: string;
   };
+  lang: Language;
+  setLang: (lang: Language) => void;
 }
 
 export default function Header({
@@ -23,25 +26,29 @@ export default function Header({
   setSelectedModel,
   models,
   fetchModels,
-  stats
+  stats,
+  lang,
+  setLang
 }: HeaderProps) {
   const [copiedModel, setCopiedModel] = useState(false);
+  const t = translations[lang];
 
   const handleCopyModel = () => {
     navigator.clipboard.writeText(selectedModel);
     setCopiedModel(true);
     setTimeout(() => setCopiedModel(false), 2000);
   };
+
   const getTabInfo = () => {
     switch (activeTab) {
       case "playground":
-        return { label: "Gateway Playroom", icon: Bot };
+        return { label: t.tabPlayground, icon: Bot };
       case "keys":
-        return { label: "API Keys", icon: Key };
+        return { label: t.tabKeys, icon: Key };
       case "logs":
-        return { label: "Real-time Analytics", icon: Terminal };
+        return { label: t.tabLogs, icon: Terminal };
       case "faq":
-        return { label: "Documentation", icon: HelpCircle };
+        return { label: t.tabFaq, icon: HelpCircle };
     }
   };
 
@@ -74,13 +81,13 @@ export default function Header({
         {/* Model Dropdown & Custom Model Input */}
         <div className="flex items-center gap-2 text-xs">
           <Cpu size={13} className="text-zinc-500" />
-          <span className="text-zinc-400 font-mono text-[11px]">Model:</span>
+          <span className="text-zinc-400 font-mono text-[11px]">{t.modelLabel}</span>
           {customInputMode ? (
             <input
               type="text"
               value={selectedModel}
               onChange={(e) => setSelectedModel(e.target.value)}
-              placeholder="e.g. gemini-3.8-flash"
+              placeholder={t.customModelPlaceholder}
               className="bg-[#0d0e12] border border-cyan-500/40 focus:border-cyan-400 rounded px-2 py-0.5 text-[11px] font-mono text-zinc-200 outline-none w-44 transition"
             />
           ) : (
@@ -92,7 +99,7 @@ export default function Header({
               >
                 {models.length === 0 ? (
                   <option value="" disabled className="bg-[#090a0f] font-mono">
-                    Loading models from Gemini...
+                    {t.modelLoading}
                   </option>
                 ) : (
                   models.map((m) => (
@@ -113,25 +120,25 @@ export default function Header({
             type="button"
             onClick={() => setCustomInputMode((prev) => !prev)}
             className="text-[10px] font-mono text-zinc-500 hover:text-zinc-300 px-1.5 py-0.5 border border-zinc-800 hover:border-zinc-700 rounded transition"
-            title={customInputMode ? "Switch to model dropdown" : "Type custom model name"}
+            title={customInputMode ? t.btnList : t.btnCustom}
           >
-            {customInputMode ? "List" : "Custom"}
+            {customInputMode ? t.btnList : t.btnCustom}
           </button>
           <button
             onClick={handleCopyModel}
             disabled={!selectedModel}
             className="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/20 hover:border-cyan-500/40 rounded px-2.5 py-1 text-[10px] font-mono transition flex items-center gap-1.5 shrink-0 disabled:opacity-40"
-            title="Copy selected model name"
+            title={t.btnCopyModel}
           >
             {copiedModel ? (
               <>
                 <Check size={11} className="text-emerald-400" />
-                <span>Copied!</span>
+                <span>{t.copiedBadge}</span>
               </>
             ) : (
               <>
                 <Copy size={11} />
-                <span>Copy Model</span>
+                <span>{t.btnCopyModel}</span>
               </>
             )}
           </button>
@@ -139,26 +146,52 @@ export default function Header({
             onClick={handleRefresh}
             disabled={isRefreshing}
             className="text-zinc-500 hover:text-cyan-400 transition-colors p-1 disabled:opacity-50"
-            title="Query Google for live available models"
+            title={t.btnRefreshModels}
           >
             <RefreshCw size={11} className={isRefreshing ? "animate-spin text-cyan-400" : ""} />
           </button>
         </div>
       </div>
 
-      {/* Live Stats */}
+      {/* Right Side: Stats + Language Switcher */}
       <div className="flex items-center gap-5">
-        {[
-          { label: "Requests", value: stats.requests },
-          { label: "Tokens", value: stats.estimatedTokens },
-          { label: "Success Rate", value: `${stats.successRate}%` },
-          { label: "Session Time", value: stats.activeTime }
-        ].map((stat, idx) => (
-          <div key={idx} className="text-right border-l border-zinc-900 pl-5 first:border-0 first:pl-0">
-            <div className="text-[8px] text-zinc-500 uppercase font-mono tracking-wider font-bold">{stat.label}</div>
-            <div className="text-xs font-bold text-zinc-300 font-mono tracking-tight">{stat.value}</div>
-          </div>
-        ))}
+        {/* Live Stats */}
+        <div className="hidden lg:flex items-center gap-5">
+          {[
+            { label: t.statRequests, value: stats.requests },
+            { label: t.statTokens, value: stats.estimatedTokens },
+            { label: t.statSuccessRate, value: `${stats.successRate}%` },
+            { label: t.statSessionTime, value: stats.activeTime }
+          ].map((stat, idx) => (
+            <div key={idx} className="text-right border-l border-zinc-900 pl-5 first:border-0 first:pl-0">
+              <div className="text-[8px] text-zinc-500 uppercase font-mono tracking-wider font-bold">{stat.label}</div>
+              <div className="text-xs font-bold text-zinc-300 font-mono tracking-tight">{stat.value}</div>
+            </div>
+          ))}
+        </div>
+
+        <span className="hidden lg:block h-4 w-px bg-zinc-800" />
+
+        {/* Language Switcher Pill Toggle */}
+        <div className="flex items-center bg-[#0d0e12] border border-zinc-800 rounded p-0.5 text-[10px] font-mono">
+          <Globe size={11} className="text-zinc-500 mx-1.5" />
+          <button
+            onClick={() => setLang("ru")}
+            className={`px-2 py-0.5 rounded transition ${
+              lang === "ru" ? "bg-cyan-500/20 text-cyan-400 font-bold shadow-sm" : "text-zinc-500 hover:text-zinc-300"
+            }`}
+          >
+            {t.langRu}
+          </button>
+          <button
+            onClick={() => setLang("en")}
+            className={`px-2 py-0.5 rounded transition ${
+              lang === "en" ? "bg-cyan-500/20 text-cyan-400 font-bold shadow-sm" : "text-zinc-500 hover:text-zinc-300"
+            }`}
+          >
+            {t.langEn}
+          </button>
+        </div>
       </div>
     </header>
   );
