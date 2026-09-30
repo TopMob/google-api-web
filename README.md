@@ -1,23 +1,34 @@
-# Gemini Web2API Gateway & Control Panel
+# Gemini Web2API Gateway & Control Panel (Local)
 
-Репозиторий персонального OpenAI-compatible AI Gateway на базе Gemini Web.
-
-## Ссылки проекта
-
-- **GitHub:** [TopMob/google-api-web](https://github.com/TopMob/google-api-web)
-- **Панель управления (Vercel):** [google-api-web.vercel.app](https://google-api-web.vercel.app/)
-- **Проект на Vercel:** [topmobs-projects/google-api-web](https://vercel.com/topmobs-projects/google-api-web)
-- **API Gateway (Railway):** [gatewayapi-production-22ba.up.railway.app](https://gatewayapi-production-22ba.up.railway.app)
+Персональный OpenAI-compatible AI Gateway на базе Gemini Web для локального использования.
 
 ---
 
-## Архитектура
+## Архитектура и сервисы
 
-Проект представляет собой монорепозиторий:
+Проект работает полностью локально на вашем компьютере:
 
-1. `apps/web` — Панель управления на Next.js (деплой на **Vercel**).
-2. `apps/gateway` — Высокопроизводительный OpenAI-compatible API-шлюз на Fastify (деплой на **Railway**).
-3. `packages/shared` — Общие контракты, типы и конфигурации моделей.
+1. **Панель управления (`apps/web`):** [http://localhost:3000](http://localhost:3000) (Next.js)
+2. **API-шлюз (`apps/gateway`):** [http://localhost:8081](http://localhost:8081) / [http://localhost:8081/v1](http://localhost:8081/v1) (Fastify)
+3. **Общие пакеты (`packages/shared`):** Контракты, типы и список поддерживаемых моделей.
+
+---
+
+## Запуск проекта
+
+Для одновременного запуска шлюза и панели управления достаточно одной команды:
+
+```bash
+# 1. Установка зависимостей (при первом запуске)
+npm install
+
+# 2. Запуск локального dev-сервера
+npm run dev
+```
+
+После этого откройте в браузере:
+- Панель управления: **http://localhost:3000**
+- Healthcheck шлюза: **http://localhost:8081/health**
 
 ---
 
@@ -38,22 +49,18 @@
 
 ## API Endpoints
 
-Все запросы должны направляться к шлюзу на Railway: `https://gatewayapi-production-22ba.up.railway.app/v1`
+Все запросы направляются к локальному шлюзу: `http://localhost:8081/v1`
 
 ### 1. `GET /v1/models`
-
 Получение списка всех доступных моделей.
 
 ### 2. `POST /v1/chat/completions`
-
 OpenAI-compatible эндпоинт генерации текста. Поддерживает стандартные параметры (`stream`, `messages`, `tools`).
 
 ### 3. `POST /v1/responses`
-
-OpenAI-compatible Responses API (упрощенный оберточный эндпоинт).
+OpenAI-compatible Responses API.
 
 ### 4. `GET /health`
-
 Служебный эндпоинт для проверки статуса работы шлюза.
 
 ---
@@ -67,7 +74,7 @@ import OpenAI from "openai";
 
 const openai = new OpenAI({
   apiKey: "sk-personal-gw", // Ваш API-ключ из панели управления
-  baseURL: "https://gatewayapi-production-22ba.up.railway.app/v1"
+  baseURL: "http://localhost:8081/v1"
 });
 
 const response = await openai.chat.completions.create({
@@ -80,7 +87,7 @@ console.log(response.choices[0].message.content);
 ### Пример через cURL
 
 ```bash
-curl -X POST "https://gatewayapi-production-22ba.up.railway.app/v1/chat/completions" \
+curl -X POST "http://localhost:8081/v1/chat/completions" \
   -H "Authorization: Bearer sk-personal-gw" \
   -H "Content-Type: application/json" \
   -d '{
@@ -92,19 +99,18 @@ curl -X POST "https://gatewayapi-production-22ba.up.railway.app/v1/chat/completi
 
 ---
 
-## Локальная разработка
+## Выбор Google-аккаунта (`AUTH_USER`)
 
-1. Установите dependencies в корне:
+Если в браузере выполнен вход в несколько аккаунтов Google, вы можете выбрать, какой аккаунт использовать:
+- В файле `config.json` укажите индекс аккаунта:
+  ```json
+  {
+    "auth_user": "1"
+  }
+  ```
+  (`"0"` или `""` — основной аккаунт, `"1"` — второй, `"2"` — третий).
 
-```bash
-npm install
-```
-
-2. Запуск локального dev-сервера (Next.js на :3000 + Fastify на :8081):
-
-```bash
-npm run dev
-```
+---
 
 ## TODO
 

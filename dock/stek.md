@@ -6,7 +6,7 @@
 
 ## 1. Назначение продукта
 
-Продукт представляет собой персональный OpenAI-compatible AI gateway-агрегатор для собственных приложений. Его задача — превратить нестабильный и неофициальный доступ к Gemini Web в управляемый, безопасный и предсказуемый сервис с единым контрактом интеграции. [docs.railway](https://docs.railway.com/services)
+Продукт представляет собой персональный OpenAI-compatible AI gateway-агрегатор для собственных приложений. Его задача — превратить доступ к Gemini Web в управляемый, безопасный и предсказуемый локальный сервис с единым контрактом интеграции.
 
 Ключевая идея продукта — не “чатик поверх Gemini”, а личный слой AI-инфраструктуры с веб-панелью управления. Все внешние проекты подключаются не напрямую к конкретному провайдеру, а к единому API-слою через base URL, API key и имя модели. [developers.openai](https://developers.openai.com/api/docs/guides/migrate-to-responses)
 
@@ -33,7 +33,7 @@
 - SSE streaming.
 - Retry/backoff.
 - Circuit breaker и upstream error normalization.
-- Railway как persistent service, потому что Railway поддерживает always-running persistent services для backend API и web apps. [docs.railway](https://docs.railway.com/services)
+- Локальный запуск на ПК/ноутбуке (Fastify на порту 8081).
 
 ### Data layer
 
@@ -42,9 +42,8 @@
 
 ### Infra layer
 
-- Redis / Upstash Redis для rate limiting и быстрых счетчиков.
-- Vercel env для web-приложения.
-- Railway env/secrets для gateway.
+- Локальные JSON-хранилища / файлы для rate limiting, статистики и cookies.
+- Локальный config.json / .env для gateway и web.
 - Structured logging через Pino.
 
 ---
@@ -56,7 +55,7 @@
 ```text
 apps/
   web/         # Next.js сайт, админка, test chat, документация
-  gateway/     # Node.js API gateway на Railway
+  gateway/     # Node.js API gateway (Fastify, localhost:8081)
 packages/
   shared/      # общие типы, схемы, model aliases, ошибки, utils
 ```
@@ -150,7 +149,7 @@ packages/
 
 ### `GET /health`
 
-Служебный endpoint для проверки доступности gateway и диагностики инфраструктуры. Railway и другие production deployment-практики обычно используют health-check endpoint для мониторинга и валидации сервиса. [docs.phase](https://docs.phase.dev/self-hosting/railway)
+Служебный endpoint для проверки доступности gateway и диагностики сервиса.
 
 Пример ответа:
 
@@ -309,21 +308,21 @@ API key предназначен для подключения внешнего 
 
 ---
 
-## 11. Деплой
+## 11. Локальный запуск и архитектура
 
 ### Web
 
-- Деплой на Vercel.
-- Хостит сайт, админку, test chat и документацию.
+- Next.js 16 на `http://localhost:3000`.
+- Панель управления, Playground, управление ключами и документация.
 
 ### Gateway
 
-- Деплой на Railway как persistent service. Railway описывает persistent services как always-running сервисы для web apps, backend APIs, очередей и других долгоживущих сервисов. [docs.railway](https://docs.railway.com/services)
+- Fastify API-шлюз на `http://localhost:8081`.
+- OpenAI-совместимые эндпоинты `/v1/*` и проксирование запросов к Gemini Web.
 
-### Data
+### Команда запуска
 
-- Supabase Postgres отдельно.
-- Redis / Upstash Redis отдельно.
+- Единый запуск монорепозитория: `npm run dev`.
 
 ---
 
@@ -351,6 +350,6 @@ npm install fastify zod pino dotenv ioredis eventsource-parser
 
 ## 13. Итоговая формулировка проекта
 
-Персональный AI Gateway — это OpenAI-compatible API-слой для собственных приложений, который превращает доступ к Gemini Web в единый, безопасный и управляемый сервис. Он предоставляет совместимые endpoint’ы `/v1/models`, `/v1/chat/completions`, `/v1/responses`, проектные API-ключи, дневные лимиты, логи, статистику и простое подключение через стандартный OpenAI-compatible клиент. [docs.railway](https://docs.railway.com/services)
+Персональный AI Gateway — это OpenAI-compatible API-слой для собственных приложений, который превращает доступ к Gemini Web в единый, безопасный и управляемый сервис. Он предоставляет совместимые endpoint’ы `/v1/models`, `/v1/chat/completions`, `/v1/responses`, проектные API-ключи, дневные лимиты, логи, статистику и простое подключение через стандартный OpenAI-compatible клиент.
 
 информация не точная "' React 19, Fastify вместо Hono, Zustand, Upstash Redis, точные названия моделей вроде gemini-flash, часть package list и некоторые детали внутренней реализации gateway — это инженерная рекомендация, а не полностью подтвержденная официальная спецификация именно твоего будущего проекта "'
