@@ -1,117 +1,56 @@
-# Gemini Web2API Gateway & Control Panel (Local)
+# google-api-web
 
-Персональный OpenAI-compatible AI Gateway на базе Gemini Web для локального использования.
+Локальный веб-интерфейс и API-шлюз с OpenAI-совместимым API для экспериментов с Gemini Web.
 
----
+> Проект предназначен для локального использования и экспериментов. Он может зависеть от текущего поведения стороннего веб-интерфейса Gemini и перестать работать после его изменений.
 
-## Архитектура и сервисы
+## Архитектура
 
-Проект работает полностью локально на вашем компьютере:
+- `apps/web` — локальная панель управления;
+- `apps/gateway` — Fastify-шлюз;
+- `packages/shared` — общие типы и контракты.
 
-1. **Панель управления (`apps/web`):** [http://localhost:3000](http://localhost:3000) (Next.js)
-2. **API-шлюз (`apps/gateway`):** [http://localhost:8081](http://localhost:8081) / [http://localhost:8081/v1](http://localhost:8081/v1) (Fastify)
-3. **Общие пакеты (`packages/shared`):** Контракты, типы и список поддерживаемых моделей.
+По умолчанию используются:
 
----
+- панель: `http://localhost:3000`;
+- API: `http://localhost:8081`;
+- OpenAI-compatible API: `http://localhost:8081/v1`.
 
-## Запуск проекта
-
-Для одновременного запуска шлюза и панели управления достаточно одной команды:
+## Запуск
 
 ```bash
-# 1. Установка зависимостей (при первом запуске)
+git clone https://github.com/TopMob/google-api-web.git
+cd google-api-web
 npm install
-
-# 2. Запуск локального dev-сервера
 npm run dev
 ```
 
-После этого откройте в браузере:
-- Панель управления: **http://localhost:3000**
-- Healthcheck шлюза: **http://localhost:8081/health**
-
----
-
-## Доступные модели
-
-При вызове API вы можете использовать следующие идентификаторы моделей:
-
-| Модель (ID)                      | Описание                                                                        |
-| :------------------------------- | :------------------------------------------------------------------------------ |
-| `gemini-3.5-flash`               | Быстрая модель общего назначения.                                               |
-| `gemini-3.5-flash-thinking`      | Режим глубоких размышлений (Deep Thinking), сверхдлинный вывод (~20k символов). |
-| `gemini-3.1-pro`                 | Pro-модель повышенной сложности (требуется кука с расширенным доступом).        |
-| `gemini-3.5-flash-thinking-lite` | Динамические размышления с адаптивной глубиной.                                 |
-| `gemini-flash-lite`              | Облегченная быстрая модель.                                                     |
-| `gemini-auto`                    | Автоматический выбор наиболее подходящей модели.                                |
-
----
-
-## API Endpoints
-
-Все запросы направляются к локальному шлюзу: `http://localhost:8081/v1`
-
-### 1. `GET /v1/models`
-Получение списка всех доступных моделей.
-
-### 2. `POST /v1/chat/completions`
-OpenAI-compatible эндпоинт генерации текста. Поддерживает стандартные параметры (`stream`, `messages`, `tools`).
-
-### 3. `POST /v1/responses`
-OpenAI-compatible Responses API.
-
-### 4. `GET /health`
-Служебный эндпоинт для проверки статуса работы шлюза.
-
----
-
-## Использование API
-
-### Пример подключения (Node.js / OpenAI SDK)
-
-```typescript
-import OpenAI from "openai";
-
-const openai = new OpenAI({
-  apiKey: "sk-personal-gw", // Ваш API-ключ из панели управления
-  baseURL: "http://localhost:8081/v1"
-});
-
-const response = await openai.chat.completions.create({
-  model: "gemini-3.5-flash",
-  messages: [{ role: "user", content: "Привет!" }]
-});
-console.log(response.choices[0].message.content);
-```
-
-### Пример через cURL
+Проверка шлюза:
 
 ```bash
-curl -X POST "http://localhost:8081/v1/chat/completions" \
-  -H "Authorization: Bearer sk-personal-gw" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gemini-3.5-flash",
-    "messages": [{"role": "user", "content": "Привет!"}],
-    "stream": false
-  }'
+curl http://localhost:8081/health
 ```
 
----
+## API
 
-## Выбор Google-аккаунта (`AUTH_USER`)
+- `GET /v1/models`
+- `POST /v1/chat/completions`
+- `POST /v1/responses`
+- `GET /health`
 
-Если в браузере выполнен вход в несколько аккаунтов Google, вы можете выбрать, какой аккаунт использовать:
-- В файле `config.json` укажите индекс аккаунта:
-  ```json
-  {
-    "auth_user": "1"
-  }
-  ```
-  (`"0"` или `""` — основной аккаунт, `"1"` — второй, `"2"` — третий).
+Пример с OpenAI SDK:
 
----
+```ts
+const client = new OpenAI({
+  apiKey: process.env.GATEWAY_API_KEY,
+  baseURL: "http://localhost:8081/v1",
+});
+```
 
-## TODO
+## Безопасность
 
-- [ ] Доделать подключение провайдеров (VS Code, Codex, Codex CLI, OpenClaw, Cursor, JetBrains, Zed)
+Не публикуйте cookies, токены Google, ключи шлюза и содержимое `config.json`. Не запускайте шлюз с доступом из интернета без отдельной аутентификации и сетевого ограничения.
+
+## Статус
+
+Экспериментальный локальный проект. Поддерживаемые модели и способы авторизации могут меняться.
