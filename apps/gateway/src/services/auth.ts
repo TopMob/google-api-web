@@ -19,15 +19,14 @@ export async function verifyApiKey(request: FastifyRequest, model: string): Prom
   let key = "";
   const authHeader = request.headers.authorization;
   const xApiKeyHeader = request.headers["x-api-key"];
+  const xGoogApiKeyHeader = request.headers["x-goog-api-key"];
 
   if (authHeader) {
     key = authHeader.replace(/^Bearer\s+/i, "").trim();
   } else if (xApiKeyHeader) {
-    if (Array.isArray(xApiKeyHeader)) {
-      key = xApiKeyHeader[0].trim();
-    } else {
-      key = xApiKeyHeader.trim();
-    }
+    key = Array.isArray(xApiKeyHeader) ? xApiKeyHeader[0].trim() : xApiKeyHeader.trim();
+  } else if (xGoogApiKeyHeader) {
+    key = Array.isArray(xGoogApiKeyHeader) ? xGoogApiKeyHeader[0].trim() : xGoogApiKeyHeader.trim();
   }
 
   let rateLimitKey = "";
@@ -106,9 +105,9 @@ export async function verifyApiKey(request: FastifyRequest, model: string): Prom
     return { valid: false, error: "Missing API key / Authorization header", statusCode: 401 };
   }
 
-  // Check admin key
-  const adminKey = ADMIN_API_KEY;
-  if (key === adminKey || key === "sk-personal-gw") {
+  // Check admin key (configured via ADMIN_API_KEY env; no hardcoded bypass)
+  const adminKey = process.env.ADMIN_API_KEY || ADMIN_API_KEY;
+  if (adminKey && key === adminKey) {
     rateLimitKey = `static:${key}`;
     rateLimitRpm = DEFAULT_RATE_LIMIT_RPM;
 
@@ -136,7 +135,7 @@ export async function verifyApiKey(request: FastifyRequest, model: string): Prom
     return { valid: false, error: "API key has expired", statusCode: 403 };
   }
 
-  if (storedKey.allowed_models && !storedKey.allowed_models.includes(model)) {
+  if (storedKey.allowed_models && storedKey.allowed_models.length > 0 && !storedKey.allowed_models.includes(model)) {
     return { valid: false, error: `Model '${model}' is not allowed for this API key`, statusCode: 403 };
   }
 
@@ -145,6 +144,27 @@ export async function verifyApiKey(request: FastifyRequest, model: string): Prom
     const isRateOk = await checkRateLimit(storedKey.id, keyRpm);
     if (!isRateOk) {
       return { valid: false, error: "Rate limit exceeded. Please slow down.", statusCode: 429 };
+    }
+  }
+
+  if (
+    (storedKey.daily_requests_limit && storedKey.daily_requests_limit > 0) ||
+    (storedKey.daily_tokens_limit && storedKey.daily_tokens_limit > 0)
+  ) {
+    const daily = store.getDailyUsageForKey(storedKey.id);
+    if (
+      storedKey.daily_requests_limit &&
+      storedKey.daily_requests_limit > 0 &&
+      daily.requests >= storedKey.daily_requests_limit
+    ) {
+      return { valid: false, error: "Daily request limit exceeded for this API key.", statusCode: 429 };
+    }
+    if (
+      storedKey.daily_tokens_limit &&
+      storedKey.daily_tokens_limit > 0 &&
+      daily.tokens >= storedKey.daily_tokens_limit
+    ) {
+      return { valid: false, error: "Daily token limit exceeded for this API key.", statusCode: 429 };
     }
   }
 

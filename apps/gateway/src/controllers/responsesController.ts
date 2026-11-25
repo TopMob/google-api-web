@@ -8,6 +8,7 @@ import { geminiCircuitBreaker } from "../utils/circuitBreaker.js";
 import { normalizeError } from "../utils/errors.js";
 import { responsesApiSchema } from "../utils/schemas.js";
 import { countTokens } from "../utils/tokens.js";
+import { extractImagesFromMessages, uploadAllImages } from "../services/multimodal.js";
 
 export async function responsesApiController(request: FastifyRequest, reply: FastifyReply) {
   const parseResult = responsesApiSchema.safeParse(request.body);
@@ -86,12 +87,15 @@ export async function responsesApiController(request: FastifyRequest, reply: Fas
           messages.push(m);
         } else {
           const role = item.role || "user";
-          let content = item.content || "";
+          let content: any = item.content || "";
           if (Array.isArray(content)) {
-            content = content
-              .filter((c: any) => c.type === "text" || c.type === "input_text")
-              .map((c: any) => c.text || "")
-              .join(" ");
+            const hasImage = content.some((c: any) => c && (c.type === "image_url" || c.type === "input_image"));
+            if (!hasImage) {
+              content = content
+                .filter((c: any) => c.type === "text" || c.type === "input_text")
+                .map((c: any) => c.text || "")
+                .join(" ");
+            }
           }
           messages.push({ role, content });
         }
@@ -122,8 +126,11 @@ export async function responsesApiController(request: FastifyRequest, reply: Fas
   });
 
   try {
+    const imageInputs = await extractImagesFromMessages(messages);
+    const fileRefs = imageInputs.length > 0 ? await uploadAllImages(imageInputs, customCookie) : undefined;
+
     const raw = await geminiCircuitBreaker.execute(() =>
-      geminiStreamGenerate(prompt, cfg.mode, cfg.think, customCookie, abortController.signal)
+      geminiStreamGenerate(prompt, cfg.mode, cfg.think, customCookie, abortController.signal, fileRefs)
     );
     const text = extractResponseText(raw);
     let cleanText = text;

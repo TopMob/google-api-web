@@ -62,14 +62,24 @@ const DEFAULT_API_KEY: StoredApiKey = {
   created_at: new Date().toISOString()
 };
 
-class LocalStore {
+export class LocalStore {
   private data: StoreData;
   private filePath: string;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly SAVE_DEBOUNCE_MS = 2000;
   private readonly MAX_USAGE_LOGS = 500;
 
-  constructor() {
+  constructor(customFilePath?: string) {
+    if (customFilePath) {
+      this.filePath = path.resolve(customFilePath);
+      const dir = path.dirname(this.filePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      this.data = this.load();
+      return;
+    }
+
     const storePaths = [
       path.resolve(process.cwd(), "data/store.json"),
       path.resolve(process.cwd(), "apps/gateway/data/store.json"),
@@ -217,6 +227,27 @@ class LocalStore {
     return key;
   }
 
+  deleteApiKey(id: string): boolean {
+    const idx = this.data.api_keys.findIndex((k) => k.id === id);
+    if (idx === -1) return false;
+    this.data.api_keys.splice(idx, 1);
+    this.scheduleSave();
+    return true;
+  }
+
+  getDailyUsageForKey(apiKeyId: string): { requests: number; tokens: number } {
+    const todayPrefix = new Date().toISOString().slice(0, 10);
+    let requests = 0;
+    let tokens = 0;
+    for (const log of this.data.usage_logs) {
+      if (log.api_key_id === apiKeyId && log.created_at.startsWith(todayPrefix)) {
+        requests += 1;
+        tokens += log.total_tokens || 0;
+      }
+    }
+    return { requests, tokens };
+  }
+
   // Usage Logs
   addUsageLog(log: Omit<StoredUsageLog, "id" | "created_at">): StoredUsageLog {
     const entry: StoredUsageLog = {
@@ -236,7 +267,8 @@ class LocalStore {
   }
 
   getUsageLogs(limit = 50): (StoredUsageLog & { projects?: { name: string }; api_keys?: { name: string } })[] {
-    const logs = this.data.usage_logs.slice(-limit).reverse();
+    const boundedLimit = Math.min(Math.max(1, limit), this.MAX_USAGE_LOGS);
+    const logs = this.data.usage_logs.slice(-boundedLimit).reverse();
     return logs.map((log) => {
       const project = this.data.projects.find((p) => p.id === log.project_id);
       const apiKey = this.data.api_keys.find((k) => k.id === log.api_key_id);
@@ -248,18 +280,25 @@ class LocalStore {
     });
   }
 
-  getStats() {
+  getStats(limit = 50) {
     const logs = this.data.usage_logs;
     const totalRequests = logs.length;
+    const totalPromptTokens = logs.reduce((acc, curr) => acc + (curr.prompt_tokens || 0), 0);
+    const totalCompletionTokens = logs.reduce((acc, curr) => acc + (curr.completion_tokens || 0), 0);
     const totalTokens = logs.reduce((acc, curr) => acc + (curr.total_tokens || 0), 0);
+    const totalDuration = logs.reduce((acc, curr) => acc + (curr.duration_ms || 0), 0);
+    const avgDurationMs = totalRequests > 0 ? Math.round(totalDuration / totalRequests) : 0;
     const successful = logs.filter((l) => l.status_code >= 200 && l.status_code < 300).length;
     const successRate = totalRequests > 0 ? Math.round((successful / totalRequests) * 100) : 100;
 
     return {
       totalRequests,
       totalTokens,
+      totalPromptTokens,
+      totalCompletionTokens,
+      avgDurationMs,
       successRate,
-      recentLogs: this.getUsageLogs(10)
+      recentLogs: this.getUsageLogs(limit)
     };
   }
 

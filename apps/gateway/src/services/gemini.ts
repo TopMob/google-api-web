@@ -14,7 +14,11 @@ class GeminiPayloadBuilder {
     return this;
   }
 
-  setPrompt(prompt: string) {
+  setPrompt(prompt: string, fileRefs?: string[]) {
+    if (fileRefs && fileRefs.length > 0) {
+      const refs = fileRefs.map((ref) => [null, null, ref]);
+      return this.set(0, [prompt, 0, null, refs, null, null, 0]);
+    }
     return this.set(0, [prompt, 0, null, null, null, null, 0]);
   }
   setLanguage(lang: string) {
@@ -59,7 +63,8 @@ export async function buildGeminiRequest(
   prompt: string,
   modelId: number,
   thinkMode: number,
-  customCookie?: string
+  customCookie?: string,
+  fileRefs?: string[]
 ): Promise<{ url: string; headers: Record<string, string>; body: string }> {
   let cookieStr = "";
   let sapisid: string | null = null;
@@ -80,7 +85,7 @@ export async function buildGeminiRequest(
   const sn = sessionInfo.sn;
 
   const payloadStr = new GeminiPayloadBuilder()
-    .setPrompt(prompt)
+    .setPrompt(prompt, fileRefs)
     .setLanguage("en")
     .setContextOptions()
     .setThinkMode(thinkMode)
@@ -127,9 +132,10 @@ export async function geminiStreamGenerate(
   modelId: number,
   thinkMode: number,
   customCookie?: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  fileRefs?: string[]
 ): Promise<string> {
-  const { url, headers, body } = await buildGeminiRequest(prompt, modelId, thinkMode, customCookie);
+  const { url, headers, body } = await buildGeminiRequest(prompt, modelId, thinkMode, customCookie, fileRefs);
 
   const response = await fetchWithRetry(
     url,

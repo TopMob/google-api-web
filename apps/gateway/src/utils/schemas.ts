@@ -17,6 +17,12 @@ export const chatCompletionSchema = z.object({
     )
     .min(1, "messages list must contain at least 1 message"),
   stream: z.boolean().optional().default(false),
+  stream_options: z
+    .object({
+      include_usage: z.boolean().optional()
+    })
+    .optional(),
+  stop: z.union([z.string(), z.array(z.string())]).optional(),
   tools: z.array(z.any()).optional(),
   temperature: z.number().optional(),
   max_tokens: z.number().optional(),

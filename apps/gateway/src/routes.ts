@@ -3,22 +3,33 @@ import { getModels } from "./utils/models.js";
 import { isCookieValidCached, loadCookie } from "./utils/cookie.js";
 import { chatCompletionController } from "./controllers/chatController.js";
 import { responsesApiController } from "./controllers/responsesController.js";
+import {
+  googleGetModelsController,
+  googleGetModelDetailController,
+  googleGenerateContentController
+} from "./controllers/googleNativeController.js";
 import { store } from "./db.js";
 import { saveCookieFile, getCookieStatus } from "./utils/cookieManager.js";
+import { geminiCircuitBreaker } from "./utils/circuitBreaker.js";
 
 export function registerRoutes(server: FastifyInstance) {
-  server.get("/health", async (request: FastifyRequest, reply: FastifyReply) => {
+  server.get("/health", async (_request: FastifyRequest, reply: FastifyReply) => {
     const loaded = loadCookie();
+    const cbStatus = geminiCircuitBreaker.getStatus();
+    let cookieValid: boolean | null = null;
+
     if (loaded.cookieStr) {
-      const isValid = await isCookieValidCached(loaded.cookieStr, loaded.sapisid);
-      if (!isValid) {
+      cookieValid = await isCookieValidCached(loaded.cookieStr, loaded.sapisid);
+      if (!cookieValid) {
         return reply.status(200).send({
           status: "warning",
+          cookieValid: false,
+          circuitBreaker: cbStatus,
           message: "Gemini session cookie has expired or is invalid. Please refresh the cookie file."
         });
       }
     }
-    return { status: "ok" };
+    return { status: "ok", cookieValid, circuitBreaker: cbStatus };
   });
 
   server.get("/", async () => {
@@ -42,6 +53,11 @@ export function registerRoutes(server: FastifyInstance) {
   server.get("/v1/models", getModelsHandler);
   server.get("/models", getModelsHandler);
 
+  // Google Native Gemini CLI compatibility
+  server.get("/v1beta/models", googleGetModelsController);
+  server.get("/v1beta/models/:model", googleGetModelDetailController);
+  server.post("/v1beta/models/*", googleGenerateContentController);
+
   server.post("/v1/chat/completions", chatCompletionController);
   server.post("/chat/completions", chatCompletionController);
 
@@ -58,10 +74,10 @@ export function registerRoutes(server: FastifyInstance) {
   server.post("/api/projects", async (request: FastifyRequest, reply: FastifyReply) => {
     const body = request.body as any;
     const name = body?.name;
-    if (!name) {
+    if (!name || typeof name !== "string" || !name.trim()) {
       return reply.status(400).send({ error: "Project name is required" });
     }
-    return store.createProject(name);
+    return store.createProject(name.trim());
   });
 
   // API Keys
@@ -77,9 +93,9 @@ export function registerRoutes(server: FastifyInstance) {
       return reply.status(400).send({ error: "Name and project_id are required" });
     }
     return store.createApiKey({
-      name,
+      name: String(name).trim(),
       project_id,
-      allowed_models: allowed_models || null,
+      allowed_models: Array.isArray(allowed_models) && allowed_models.length > 0 ? allowed_models : null,
       daily_requests_limit: daily_requests_limit ? parseInt(daily_requests_limit, 10) : null,
       daily_tokens_limit: daily_tokens_limit ? parseInt(daily_tokens_limit, 10) : null,
       rate_limit_rpm: rate_limit_rpm ? parseInt(rate_limit_rpm, 10) : null,
@@ -100,9 +116,35 @@ export function registerRoutes(server: FastifyInstance) {
     return result;
   });
 
+  server.delete("/api/keys", async (request: FastifyRequest, reply: FastifyReply) => {
+    const query = request.query as { id?: string };
+    const body = (request.body as { id?: string } | undefined) || {};
+    const id = query?.id || body?.id;
+    if (!id) {
+      return reply.status(400).send({ error: "id is required" });
+    }
+    const ok = store.deleteApiKey(id);
+    if (!ok) {
+      return reply.status(404).send({ error: "API key not found" });
+    }
+    return { deleted: true, id };
+  });
+
+  server.delete("/api/keys/:id", async (request: FastifyRequest, reply: FastifyReply) => {
+    const params = request.params as { id: string };
+    const ok = store.deleteApiKey(params.id);
+    if (!ok) {
+      return reply.status(404).send({ error: "API key not found" });
+    }
+    return { deleted: true, id: params.id };
+  });
+
   // Stats / Usage
-  server.get("/api/stats", async () => {
-    return store.getStats();
+  server.get("/api/stats", async (request: FastifyRequest) => {
+    const query = request.query as { limit?: string };
+    const parsedLimit = query?.limit ? parseInt(query.limit, 10) : 50;
+    const safeLimit = Number.isFinite(parsedLimit) ? Math.min(Math.max(1, parsedLimit), 500) : 50;
+    return store.getStats(safeLimit);
   });
 
   // Cookie Management

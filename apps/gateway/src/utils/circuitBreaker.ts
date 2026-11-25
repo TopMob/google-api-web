@@ -9,6 +9,10 @@ export class CircuitBreaker {
   private cooldownMs = 30000;
   private consecutiveSuccesses = 0;
 
+  public getStatus(): { state: "CLOSED" | "OPEN" | "HALF-OPEN"; failures: number } {
+    return { state: this.state, failures: this.failures };
+  }
+
   public async execute<T>(action: () => Promise<T>): Promise<T> {
     if (this.state === "OPEN") {
       if (Date.now() - this.lastFailureTime > this.cooldownMs) {

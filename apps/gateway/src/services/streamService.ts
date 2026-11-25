@@ -18,13 +18,15 @@ export async function handleChatStream(
   reply: FastifyReply,
   cid: string,
   startTime: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  fileRefs?: string[],
+  includeUsage = false
 ) {
   const customCookie = auth.customCookie;
   let responseText = "";
 
   try {
-    const { url, headers, body } = await buildGeminiRequest(prompt, cfg.mode, cfg.think, customCookie);
+    const { url, headers, body } = await buildGeminiRequest(prompt, cfg.mode, cfg.think, customCookie, fileRefs);
 
     const response = await geminiCircuitBreaker.execute(async () => {
       return await fetchWithRetry(url, {
@@ -125,6 +127,9 @@ export async function handleChatStream(
       reader.cancel();
     } catch {}
 
+    const promptTokens = countTokens(prompt);
+    const completionTokens = countTokens(responseText);
+
     if (reply.raw.writable && !reply.raw.writableEnded) {
       const finalChunk = {
         id: cid,
@@ -134,20 +139,29 @@ export async function handleChatStream(
         choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
       };
       reply.raw.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
+
+      if (includeUsage) {
+        const usageChunk = {
+          id: cid,
+          object: "chat.completion.chunk",
+          created: Math.floor(Date.now() / 1000),
+          model: modelName,
+          choices: [],
+          usage: {
+            prompt_tokens: promptTokens,
+            completion_tokens: completionTokens,
+            total_tokens: promptTokens + completionTokens
+          }
+        };
+        reply.raw.write(`data: ${JSON.stringify(usageChunk)}\n\n`);
+      }
+
       reply.raw.write("data: [DONE]\n\n");
       reply.raw.end();
     }
 
     const durationMs = Date.now() - startTime;
-    await logUsage(
-      auth.projectId!,
-      auth.apiKeyId!,
-      modelName,
-      countTokens(prompt),
-      countTokens(responseText),
-      durationMs,
-      200
-    );
+    await logUsage(auth.projectId!, auth.apiKeyId!, modelName, promptTokens, completionTokens, durationMs, 200);
   } catch (e: unknown) {
     logger.error({ err: e }, "Streaming error");
     const normalized = normalizeError(e);
@@ -187,7 +201,9 @@ export async function handleChatStreamWithTools(
   reply: FastifyReply,
   cid: string,
   startTime: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  fileRefs?: string[],
+  includeUsage = false
 ) {
   const customCookie = auth.customCookie;
   let responseText = "";
@@ -195,13 +211,15 @@ export async function handleChatStreamWithTools(
   let toolSuspended = false;
 
   try {
-    const { url, headers, body } = await buildGeminiRequest(prompt, cfg.mode, cfg.think, customCookie);
-    const response = await fetchWithRetry(url, {
-      method: "POST",
-      headers,
-      body,
-      keepalive: true,
-      signal
+    const { url, headers, body } = await buildGeminiRequest(prompt, cfg.mode, cfg.think, customCookie, fileRefs);
+    const response = await geminiCircuitBreaker.execute(async () => {
+      return await fetchWithRetry(url, {
+        method: "POST",
+        headers,
+        body,
+        keepalive: true,
+        signal
+      });
     });
 
     const reader = response.body?.getReader();
@@ -310,6 +328,9 @@ export async function handleChatStreamWithTools(
 
     const { cleanText, toolCalls } = parseToolCalls(responseText);
 
+    const promptTokens = countTokens(prompt);
+    const completionTokens = countTokens(cleanText);
+
     if (reply.raw.writable && !reply.raw.writableEnded) {
       if (cleanText.length > streamedLength) {
         const delta = cleanText.substring(streamedLength);
@@ -359,20 +380,28 @@ export async function handleChatStreamWithTools(
         reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
       }
 
+      if (includeUsage) {
+        const usageChunk = {
+          id: cid,
+          object: "chat.completion.chunk",
+          created: Math.floor(Date.now() / 1000),
+          model: modelName,
+          choices: [],
+          usage: {
+            prompt_tokens: promptTokens,
+            completion_tokens: completionTokens,
+            total_tokens: promptTokens + completionTokens
+          }
+        };
+        reply.raw.write(`data: ${JSON.stringify(usageChunk)}\n\n`);
+      }
+
       reply.raw.write("data: [DONE]\n\n");
       reply.raw.end();
     }
 
     const durationMs = Date.now() - startTime;
-    await logUsage(
-      auth.projectId!,
-      auth.apiKeyId!,
-      modelName,
-      countTokens(prompt),
-      countTokens(cleanText),
-      durationMs,
-      200
-    );
+    await logUsage(auth.projectId!, auth.apiKeyId!, modelName, promptTokens, completionTokens, durationMs, 200);
   } catch (e: unknown) {
     logger.error({ err: e }, "Streaming with tools error");
     const normalized = normalizeError(e);

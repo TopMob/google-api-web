@@ -1,6 +1,20 @@
 export function normalizeError(err: any): { status: number; body: any } {
   const msg = err instanceof Error ? err.message : String(err);
 
+  if (err instanceof Error && err.name === "ImageValidationError") {
+    return {
+      status: 400,
+      body: {
+        error: {
+          message: msg,
+          type: "invalid_request_error",
+          param: "messages",
+          code: "invalid_image_input"
+        }
+      }
+    };
+  }
+
   if (msg.includes("Circuit breaker is OPEN")) {
     return {
       status: 503,

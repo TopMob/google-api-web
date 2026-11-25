@@ -9,6 +9,8 @@ import { normalizeError } from "../utils/errors.js";
 import { chatCompletionSchema } from "../utils/schemas.js";
 import { handleChatStream, handleChatStreamWithTools } from "../services/streamService.js";
 import { countTokens } from "../utils/tokens.js";
+import { extractImagesFromMessages, uploadAllImages } from "../services/multimodal.js";
+import { logger } from "../logger.js";
 
 export async function chatCompletionController(request: FastifyRequest, reply: FastifyReply) {
   const parseResult = chatCompletionSchema.safeParse(request.body);
@@ -64,6 +66,21 @@ export async function chatCompletionController(request: FastifyRequest, reply: F
     }
   });
 
+  let fileRefs: string[] | undefined;
+  try {
+    const imageInputs = await extractImagesFromMessages(req.messages);
+    if (imageInputs.length > 0) {
+      fileRefs = await uploadAllImages(imageInputs, customCookie);
+    }
+  } catch (imgErr) {
+    const durationMs = Date.now() - startTime;
+    const normalized = normalizeError(imgErr);
+    await logUsage(auth.projectId!, auth.apiKeyId!, modelName, countTokens(prompt), 0, durationMs, normalized.status);
+    return reply.status(normalized.status).send(normalized.body);
+  }
+
+  const includeUsage = req.stream_options?.include_usage === true;
+
   if (stream) {
     reply.raw.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -73,16 +90,38 @@ export async function chatCompletionController(request: FastifyRequest, reply: F
     });
 
     if (!req.tools) {
-      await handleChatStream(prompt, modelName, cfg, auth, reply, cid, startTime, abortController.signal);
+      await handleChatStream(
+        prompt,
+        modelName,
+        cfg,
+        auth,
+        reply,
+        cid,
+        startTime,
+        abortController.signal,
+        fileRefs,
+        includeUsage
+      );
     } else {
-      await handleChatStreamWithTools(prompt, modelName, cfg, auth, reply, cid, startTime, abortController.signal);
+      await handleChatStreamWithTools(
+        prompt,
+        modelName,
+        cfg,
+        auth,
+        reply,
+        cid,
+        startTime,
+        abortController.signal,
+        fileRefs,
+        includeUsage
+      );
     }
     return reply;
   }
 
   try {
     const raw = await geminiCircuitBreaker.execute(() =>
-      geminiStreamGenerate(prompt, cfg.mode, cfg.think, customCookie, abortController.signal)
+      geminiStreamGenerate(prompt, cfg.mode, cfg.think, customCookie, abortController.signal, fileRefs)
     );
     const text = extractResponseText(raw);
     let cleanText = text;

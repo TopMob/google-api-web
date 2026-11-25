@@ -20,6 +20,10 @@ const nextConfig: NextConfig = {
       {
         source: "/responses",
         destination: `${gatewayUrl}/v1/responses`
+      },
+      {
+        source: "/v1beta/:path*",
+        destination: `${gatewayUrl}/v1beta/:path*`
       }
     ];
   }

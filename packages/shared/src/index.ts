@@ -4,62 +4,108 @@ export interface ModelConfig {
   desc: string;
 }
 
+export interface ProjectDto {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
+export interface ApiKeyDto {
+  id: string;
+  key: string;
+  name: string;
+  project_id: string;
+  active: boolean;
+  projects?: { name: string };
+  allowed_models: string[] | null;
+  daily_requests_limit: number | null;
+  daily_tokens_limit: number | null;
+  rate_limit_rpm: number | null;
+  expires_at: string | null;
+  created_at: string;
+}
+
+export interface UsageLogDto {
+  id: string;
+  project_id: string;
+  api_key_id: string;
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  duration_ms: number;
+  status_code: number;
+  created_at: string;
+  projects?: { name: string };
+  api_keys?: { name: string };
+}
+
+export interface GatewayStatsDto {
+  totalRequests: number;
+  totalTokens: number;
+  totalPromptTokens: number;
+  totalCompletionTokens: number;
+  avgDurationMs: number;
+  successRate: number;
+  recentLogs: UsageLogDto[];
+}
+
+export interface RequiredCookieInfo {
+  name: string;
+  required: boolean;
+  desc: string;
+}
+
+export interface CookieStatusDto {
+  hasFile: boolean;
+  isValid: boolean | null;
+  cookies: Record<string, boolean>;
+  requiredCookies: RequiredCookieInfo[];
+  bookmarklet?: string;
+}
+
+export interface HealthStatusDto {
+  status: "online" | "offline" | "warning" | "checking";
+  gatewayUrl: string;
+  cookieValid?: boolean | null;
+  circuitBreaker?: { state: string; failures: number };
+  message?: string;
+}
+
 export const MODELS: Record<string, ModelConfig> = {
-  // ── Gemini 3.7 Series (Latest Generation) ─────────────────────────
+  "gemini-3.8-flash": {
+    mode: 1,
+    think: 4,
+    desc: "Gemini 3.8 Flash — All-around help (Default chat model)"
+  },
+  "gemini-3.8-flash-thinking": {
+    mode: 2,
+    think: 0,
+    desc: "Gemini 3.8 Flash Thinking — Extended chain-of-thought reasoning"
+  },
   "gemini-3.7-flash": {
     mode: 1,
     think: 4,
-    desc: "Gemini 3.7 Flash — High performance hybrid reasoning model"
+    desc: "Gemini 3.7 Flash — High performance hybrid reasoning"
   },
   "gemini-3.7-flash-thinking": {
     mode: 2,
     think: 0,
     desc: "Gemini 3.7 Flash Thinking — Dynamic reasoning with extended depth"
   },
-  "gemini-3.7-pro": {
-    mode: 3,
-    think: 4,
-    desc: "Gemini 3.7 Pro — Flagship professional intelligence"
-  },
-
-  // ── Gemini 3.5 Series ────────────────────────────────────────────
-  "gemini-3.5-flash": {
-    mode: 1,
-    think: 4,
-    desc: "Gemini 3.5 Flash — Fast general-purpose conversational model"
-  },
-  "gemini-3.5-flash-thinking": {
-    mode: 2,
-    think: 0,
-    desc: "Gemini 3.5 Flash Thinking — Deep thinking mode (~20k output tokens)"
-  },
-  "gemini-3.5-flash-thinking-lite": {
-    mode: 5,
-    think: 0,
-    desc: "Gemini 3.5 Flash Thinking Lite — Adaptive depth thinking"
-  },
-
-  // ── Gemini 3.1 & Pro Series ──────────────────────────────────────
   "gemini-3.1-pro": {
     mode: 3,
     think: 4,
     desc: "Gemini 3.1 Pro — High complexity reasoning"
   },
-  "gemini-deep-research": {
-    mode: 3,
-    think: 0,
-    desc: "Gemini Deep Research — Autonomous multi-step analysis"
+  "gemini-3.5-flash-lite": {
+    mode: 6,
+    think: 4,
+    desc: "Gemini 3.5 Flash-Lite — Fastest response latency"
   },
-
-  // ── Auto & Utilities ─────────────────────────────────────────────
   "gemini-auto": {
     mode: 4,
     think: 4,
     desc: "Gemini Auto — Automatic intelligent routing"
-  },
-  "gemini-flash-lite": {
-    mode: 6,
-    think: 4,
-    desc: "Gemini Flash Lite — Instant response latency"
   }
 };
