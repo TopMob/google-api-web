@@ -11,6 +11,29 @@ export interface ModelConfig {
 
 // Models matching Gemini Web chat interface
 const FALLBACK_MODELS: Record<string, ModelConfig> = {
+  // ── Gemini 4 Elemental Series ────────────────────────────────────
+  "gemini-4-carbon": {
+    mode: 3,
+    think: 0,
+    desc: "Gemini 4 Carbon — Флагманская frontier-модель для сложного анализа"
+  },
+  "gemini-4-argon": {
+    mode: 3,
+    think: 4,
+    desc: "Gemini 4 Argon — Сбалансированная frontier-модель для ежедневных задач"
+  },
+  "gemini-4-neon": {
+    mode: 1,
+    think: 0,
+    desc: "Gemini 4 Neon — Средний уровень между Hydrogen и Carbon для кода и агентов"
+  },
+  "gemini-4-hydrogen": {
+    mode: 1,
+    think: 4,
+    desc: "Gemini 4 Hydrogen — Быстрая высокоэффективная модель для потоковых задач"
+  },
+
+  // ── Gemini 3.x Series ────────────────────────────────────────────
   "gemini-3.8-flash": {
     mode: 1,
     think: 4,
@@ -37,6 +60,26 @@ const FALLBACK_MODELS: Record<string, ModelConfig> = {
     desc: "Gemini Auto — Автоматический выбор"
   },
   // Convenient aliases
+  "gemini-carbon": {
+    mode: 3,
+    think: 0,
+    desc: "Gemini Carbon (Points to Gemini 4 Carbon)"
+  },
+  "gemini-argon": {
+    mode: 3,
+    think: 4,
+    desc: "Gemini Argon (Points to Gemini 4 Argon)"
+  },
+  "gemini-neon": {
+    mode: 1,
+    think: 0,
+    desc: "Gemini Neon (Points to Gemini 4 Neon)"
+  },
+  "gemini-hydrogen": {
+    mode: 1,
+    think: 4,
+    desc: "Gemini Hydrogen (Points to Gemini 4 Hydrogen)"
+  },
   "gemini-flash": {
     mode: 1,
     think: 4,
@@ -56,6 +99,15 @@ const FALLBACK_MODELS: Record<string, ModelConfig> = {
 
 // Known model name → mode mappings
 const KNOWN_MODE_MAP: Record<string, number> = {
+  "gemini-4-carbon": 3,
+  "gemini-carbon": 3,
+  "gemini-4-argon": 3,
+  "gemini-argon": 3,
+  "gemini-4-neon": 1,
+  "gemini-neon": 1,
+  "gemini-4-hydrogen": 1,
+  "gemini-hydrogen": 1,
+
   "gemini-3.8-flash": 1,
   "gemini-3.7-flash": 1,
   "gemini-flash": 1,
@@ -78,6 +130,10 @@ const KNOWN_MODE_MAP: Record<string, number> = {
 
 // Thinking mode: 0 = extended thinking enabled, 4 = normal (no thinking)
 const THINKING_MODE_MAP: Record<string, number> = {
+  "gemini-4-carbon": 0,
+  "gemini-carbon": 0,
+  "gemini-4-neon": 0,
+  "gemini-neon": 0,
   "gemini-3.8-flash-thinking": 0,
   "gemini-3.7-flash-thinking": 0,
   "gemini-flash-thinking": 0,
@@ -186,7 +242,11 @@ function parseModelsFromHtml(html: string): Record<string, ModelConfig> | null {
       }
 
       // Match legitimate LLM model naming patterns
-      if (/gemini-(?:[0-9]+(?:\.[0-9]+)?-(?:flash|pro)|[0-9]+-(?:flash|pro)|flash|pro|auto|advanced)/i.test(name)) {
+      if (
+        /gemini-(?:[0-9]+(?:\.[0-9]+)?-(?:flash|pro|carbon|argon|neon|hydrogen)|[0-9]+-(?:flash|pro|carbon|argon|neon|hydrogen)|flash|pro|auto|advanced|carbon|argon|neon|hydrogen)/i.test(
+          name
+        )
+      ) {
         foundModelNames.add(name);
       }
     }
@@ -203,7 +263,15 @@ function parseModelsFromHtml(html: string): Record<string, ModelConfig> | null {
       models[name] = { mode, think, desc };
 
       // Add thinking variant for reasoning models
-      if (!name.includes("thinking") && (name.includes("flash") || name.includes("pro"))) {
+      if (
+        !name.includes("thinking") &&
+        (name.includes("flash") ||
+          name.includes("pro") ||
+          name.includes("carbon") ||
+          name.includes("argon") ||
+          name.includes("neon") ||
+          name.includes("hydrogen"))
+      ) {
         const thinkingName = `${name}-thinking`;
         models[thinkingName] = {
           mode: 2,
@@ -221,7 +289,14 @@ function parseModelsFromHtml(html: string): Record<string, ModelConfig> | null {
 
 export function guessMode(name: string): number {
   const lower = name.toLowerCase();
-  if (lower.includes("pro") || lower.includes("advanced") || lower.includes("research")) return 3;
+  if (
+    lower.includes("carbon") ||
+    lower.includes("argon") ||
+    lower.includes("pro") ||
+    lower.includes("advanced") ||
+    lower.includes("research")
+  )
+    return 3;
   if (lower.includes("thinking-lite")) return 5;
   if (lower.includes("thinking")) return 2;
   if (lower.includes("flash-lite") || lower.includes("lite")) return 6;
@@ -231,6 +306,10 @@ export function guessMode(name: string): number {
 
 function generateDescription(name: string): string {
   const lower = name.toLowerCase();
+  if (lower.includes("carbon")) return "Gemini 4 Carbon — Flagship frontier reasoning model";
+  if (lower.includes("argon")) return "Gemini 4 Argon — Balanced heavy-duty frontier model";
+  if (lower.includes("neon")) return "Gemini 4 Neon — Mid-tier coding and agentic model";
+  if (lower.includes("hydrogen")) return "Gemini 4 Hydrogen — High-speed execution model";
   if (lower.includes("3.7")) {
     if (lower.includes("thinking")) return "Gemini 3.7 Flash Thinking — Dynamic hybrid reasoning";
     if (lower.includes("pro")) return "Gemini 3.7 Pro — Flagship professional intelligence";

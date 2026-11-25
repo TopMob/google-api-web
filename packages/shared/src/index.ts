@@ -73,6 +73,26 @@ export interface HealthStatusDto {
 }
 
 export const MODELS: Record<string, ModelConfig> = {
+  "gemini-4-carbon": {
+    mode: 3,
+    think: 0,
+    desc: "Gemini 4 Carbon — Flagship frontier reasoning model"
+  },
+  "gemini-4-argon": {
+    mode: 3,
+    think: 4,
+    desc: "Gemini 4 Argon — Balanced heavy-duty frontier model"
+  },
+  "gemini-4-neon": {
+    mode: 1,
+    think: 0,
+    desc: "Gemini 4 Neon — Mid-tier coding and agentic model"
+  },
+  "gemini-4-hydrogen": {
+    mode: 1,
+    think: 4,
+    desc: "Gemini 4 Hydrogen — High-speed execution model"
+  },
   "gemini-3.8-flash": {
     mode: 1,
     think: 4,

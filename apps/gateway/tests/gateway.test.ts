@@ -13,6 +13,7 @@ import {
   formatGoogleGenerateResponse,
   parseGoogleModelAction
 } from "../src/controllers/googleNativeController.js";
+import { resolveModelConfig, guessMode, getModels } from "../src/utils/models.js";
 
 describe("Multimodal SSRF & Input Validation", () => {
   it("should detect private, loopback, and link-local IPv4/IPv6 addresses", () => {
@@ -292,5 +293,30 @@ describe("Gateway HTTP Routes Integration", () => {
     expect(badGoogleAction.statusCode).toBe(404);
 
     await app.close();
+  });
+});
+
+describe("Gemini 4 Elemental Models (Carbon, Argon, Neon, Hydrogen)", () => {
+  it("should include gemini-4-carbon, gemini-4-argon, gemini-4-neon, and gemini-4-hydrogen in model list", () => {
+    const models = getModels();
+    expect(models["gemini-4-carbon"]).toBeDefined();
+    expect(models["gemini-4-argon"]).toBeDefined();
+    expect(models["gemini-4-neon"]).toBeDefined();
+    expect(models["gemini-4-hydrogen"]).toBeDefined();
+  });
+
+  it("should map elemental model modes and thinking defaults accurately", () => {
+    expect(guessMode("gemini-4-carbon")).toBe(3);
+    expect(guessMode("gemini-4-argon")).toBe(3);
+    expect(guessMode("gemini-4-neon")).toBe(1);
+    expect(guessMode("gemini-4-hydrogen")).toBe(1);
+
+    const carbon = resolveModelConfig("gemini-4-carbon");
+    expect(carbon.config.mode).toBe(3);
+    expect(carbon.config.think).toBe(0);
+
+    const hydrogenDeep = resolveModelConfig("gemini-4-hydrogen@think=0");
+    expect(hydrogenDeep.cleanModelName).toBe("gemini-4-hydrogen");
+    expect(hydrogenDeep.config.think).toBe(0);
   });
 });
