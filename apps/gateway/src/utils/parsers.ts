@@ -190,95 +190,139 @@ export interface ToolCallResult {
   };
 }
 
-export function parseToolCalls(text: string): { cleanText: string; toolCalls: ToolCallResult[] | null } {
-  const toolCalls: ToolCallResult[] = [];
-  const regex = /```tool_call\s*([\s\S]*?)\s*```/gi;
+function extractBalancedJsonObject(str: string, fromIndex: number): { json: string; endIndex: number } | null {
+  const start = str.indexOf("{", fromIndex);
+  if (start === -1) return null;
 
-  const matches = [...text.matchAll(regex)];
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
 
-  for (const match of matches) {
-    let jsonStr = match[1].trim();
-
-    try {
-      try {
-        jsonStr = jsonrepair(jsonStr);
-      } catch (e) {} // ignore jsonrepair failure, try original
-
-      const data = JSON.parse(jsonStr);
-      if (data.name) {
-        const args = data.arguments || data.parameters || {};
-        const argumentsStr = typeof args === "string" ? args : JSON.stringify(args);
-        toolCalls.push({
-          id: `call_${Math.random().toString(36).substring(2, 10)}`,
-          type: "function",
-          function: { name: data.name, arguments: argumentsStr }
-        });
+  for (let i = start; i < str.length; i++) {
+    const ch = str[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
       }
-    } catch (e: unknown) {
-      const errMessage = e instanceof Error ? e.message : String(e);
-      logger.debug({ err: errMessage, jsonStr }, "Failed to parse tool call block");
+      continue;
     }
+
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === "{") {
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        return { json: str.slice(start, i + 1), endIndex: i + 1 };
+      }
+    }
+  }
+  return null;
+}
+
+function tryParseToolCallJson(jsonStr: string): ToolCallResult | null {
+  let candidate = jsonStr.trim();
+  try {
+    try {
+      candidate = jsonrepair(candidate);
+    } catch {}
+    const data = JSON.parse(candidate);
+    if (data && typeof data.name === "string" && data.name) {
+      const args = data.arguments ?? data.parameters ?? {};
+      return {
+        id: `call_${Math.random().toString(36).substring(2, 10)}`,
+        type: "function",
+        function: {
+          name: data.name,
+          arguments: typeof args === "string" ? args : JSON.stringify(args)
+        }
+      };
+    }
+  } catch (e: unknown) {
+    const errMessage = e instanceof Error ? e.message : String(e);
+    logger.debug({ err: errMessage }, "Failed to parse tool call block");
+  }
+  return null;
+}
+
+function extractFencedToolCalls(
+  text: string,
+  fencePattern: RegExp,
+  requireArgsKey: boolean
+): { cleanText: string; toolCalls: ToolCallResult[] } {
+  const toolCalls: ToolCallResult[] = [];
+  const spansToRemove: Array<[number, number]> = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = fencePattern.exec(text)) !== null) {
+    const fenceStart = match.index;
+    const afterFence = fenceStart + match[0].length;
+    const balanced = extractBalancedJsonObject(text, afterFence);
+    if (!balanced) continue;
+
+    if (requireArgsKey && !balanced.json.includes('"arguments"') && !balanced.json.includes('"parameters"')) {
+      continue;
+    }
+
+    const parsed = tryParseToolCallJson(balanced.json);
+    if (!parsed) continue;
+
+    toolCalls.push(parsed);
+
+    let removeEnd = balanced.endIndex;
+    const trailing = text.slice(removeEnd);
+    const closeMatch = trailing.match(/^\s*```/);
+    if (closeMatch) {
+      removeEnd += closeMatch[0].length;
+    }
+    spansToRemove.push([fenceStart, removeEnd]);
+    fencePattern.lastIndex = removeEnd;
+  }
+
+  if (spansToRemove.length === 0) {
+    return { cleanText: text.trim(), toolCalls };
+  }
+
+  let clean = "";
+  let cursor = 0;
+  for (const [start, end] of spansToRemove) {
+    clean += text.slice(cursor, start);
+    cursor = end;
+  }
+  clean += text.slice(cursor);
+  return { cleanText: clean.trim(), toolCalls };
+}
+
+export function parseToolCalls(text: string): { cleanText: string; toolCalls: ToolCallResult[] | null } {
+  const primary = extractFencedToolCalls(text, /```tool_call\s*/gi, false);
+  if (primary.toolCalls.length > 0) {
+    return { cleanText: primary.cleanText, toolCalls: primary.toolCalls };
   }
 
   // Fallback: also accept ```json blocks containing {"name": ..., "arguments": ...}
-  if (toolCalls.length === 0) {
-    const jsonFenceRegex = /```json\s*([\s\S]*?)\s*```/gi;
-    let remaining = text;
-    for (const match of [...text.matchAll(jsonFenceRegex)]) {
-      let jsonStr = match[1].trim();
-      try {
-        try {
-          jsonStr = jsonrepair(jsonStr);
-        } catch {}
-        const data = JSON.parse(jsonStr);
-        if (data.name && (data.arguments !== undefined || data.parameters !== undefined)) {
-          const args = data.arguments || data.parameters || {};
-          toolCalls.push({
-            id: `call_${Math.random().toString(36).substring(2, 10)}`,
-            type: "function",
-            function: {
-              name: data.name,
-              arguments: typeof args === "string" ? args : JSON.stringify(args)
-            }
-          });
-          remaining = remaining.replace(match[0], "");
-        }
-      } catch {}
-    }
-    if (toolCalls.length > 0) {
-      return { cleanText: remaining.trim(), toolCalls };
-    }
+  const jsonFenced = extractFencedToolCalls(text, /```json\s*/gi, true);
+  if (jsonFenced.toolCalls.length > 0) {
+    return { cleanText: jsonFenced.cleanText, toolCalls: jsonFenced.toolCalls };
   }
 
   // Fallback: If no tool_call backticks were used but the entire response is a pure JSON tool call with both name and arguments
   if (
-    toolCalls.length === 0 &&
     text.trim().startsWith("{") &&
     text.includes('"name"') &&
     (text.includes('"arguments"') || text.includes('"parameters"'))
   ) {
-    try {
-      const jsonStr = jsonrepair(text.trim());
-      const data = JSON.parse(jsonStr);
-      if (data.name && (data.arguments !== undefined || data.parameters !== undefined)) {
-        toolCalls.push({
-          id: `call_${Math.random().toString(36).substring(2, 10)}`,
-          type: "function",
-          function: {
-            name: data.name,
-            arguments:
-              typeof data.arguments === "string"
-                ? data.arguments
-                : JSON.stringify(data.arguments || data.parameters || {})
-          }
-        });
-        return { cleanText: "", toolCalls };
-      }
-    } catch (e) {}
+    const parsed = tryParseToolCallJson(text.trim());
+    if (parsed) {
+      return { cleanText: "", toolCalls: [parsed] };
+    }
   }
 
-  const cleanText = text.replace(regex, "").trim();
-  return { cleanText, toolCalls: toolCalls.length > 0 ? toolCalls : null };
+  return { cleanText: text.trim(), toolCalls: null };
 }
 
 export function applyRooCodeToolFallback(

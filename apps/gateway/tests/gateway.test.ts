@@ -432,6 +432,16 @@ describe("Roo Code & IDE Tool Calling Adaptation", () => {
     expect(JSON.parse(res.toolCalls![0].function.arguments)).toEqual({ path: "README.md" });
   });
 
+  it("should parse ```tool_call with nested triple backticks inside JSON string without leaking tail", () => {
+    const raw =
+      '```tool_call\n{"name":"attempt_completion","arguments":{"result":"Here is diagram:\\n```mermaid\\nflowchart TD\\nA-->B\\n```\\nDone."}}\n```';
+    const res = parseToolCalls(raw);
+    expect(res.cleanText).toBe("");
+    expect(res.toolCalls).toHaveLength(1);
+    expect(res.toolCalls![0].function.name).toBe("attempt_completion");
+    expect(JSON.parse(res.toolCalls![0].function.arguments).result).toContain("```mermaid");
+  });
+
   it("should place tool reminder at the end of messagesToPrompt and synthesize attempt_completion fallback", () => {
     const tools = [
       { type: "function", function: { name: "attempt_completion", description: "Finish task", parameters: {} } }
