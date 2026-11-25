@@ -9,6 +9,7 @@ import LogsTab, { StatsSummary, UsageLogItem } from "../components/LogsTab";
 import { Language } from "../utils/i18n";
 
 const LANG_STORAGE_KEY = "gemini_web2api_lang";
+const CHAT_STORAGE_KEY = "gemini_web2api_chat_history";
 
 function subscribeLang(callback: () => void) {
   window.addEventListener("storage", callback);
@@ -63,6 +64,35 @@ export default function Home() {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const chatHydratedRef = useRef(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        const raw = sessionStorage.getItem(CHAT_STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            setMessages(parsed);
+          }
+        }
+      } catch {}
+      chatHydratedRef.current = true;
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
+    if (!chatHydratedRef.current || isLoading) return;
+    try {
+      sessionStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages));
+    } catch {
+      try {
+        const withoutImages = messages.map(({ role, content }) => ({ role, content }));
+        sessionStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(withoutImages));
+      } catch {}
+    }
+  }, [messages, isLoading]);
 
   const handleSetLang = (newLang: Language) => {
     try {
@@ -269,6 +299,9 @@ export default function Home() {
   const handleClear = () => {
     handleStop();
     setMessages([]);
+    try {
+      sessionStorage.removeItem(CHAT_STORAGE_KEY);
+    } catch {}
   };
 
   const handleSubmit = async (textOverride?: string, image?: string) => {
