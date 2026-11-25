@@ -1,14 +1,13 @@
 @echo off
-chcp 65001 >nul
+setlocal
 cd /d "%~dp0"
-
 title Gemini Gateway Launcher
 
 if not exist "node_modules" (
-  echo [INFO] Устанавливаю зависимости ^(npm install^)...
+  echo [INFO] Installing dependencies via npm install...
   call npm install
   if errorlevel 1 (
-    echo [ERROR] Ошибка установки зависимостей.
+    echo [ERROR] npm install failed.
     pause
     exit /b 1
   )
@@ -20,11 +19,13 @@ echo ============================================
 echo          Gemini Web2API Gateway
 echo ============================================
 echo.
-echo   [1] Локально  ^(Gateway :8081 + Web :3000^)
-echo   [2] Онлайн    ^(Gateway :8081 + Web :3000 + ngrok^)
-echo   [0] Выход
+echo   [1] Local   - Gateway :8081 + Web :3000
+echo   [2] Online  - Gateway :8081 + Web :3000 + ngrok
+echo   [0] Exit
 echo.
-set /p choice="Выберите режим (1/2/0): "
+set "choice="
+set /p choice="Select mode (1/2/0): "
+if defined choice set "choice=%choice: =%"
 
 if "%choice%"=="1" goto local
 if "%choice%"=="2" goto online
@@ -33,9 +34,9 @@ goto menu
 
 :local
 echo.
-echo [START] Запуск в локальном режиме...
-echo Веб-панель: http://localhost:3000
-echo API шлюза:  http://localhost:8081/v1
+echo [START] Starting local mode...
+echo Web UI:      http://localhost:3000
+echo Gateway API: http://localhost:8081/v1
 echo.
 call npm run dev
 pause
@@ -45,23 +46,23 @@ exit /b 0
 where ngrok >nul 2>&1
 if errorlevel 1 (
   echo.
-  echo [ERROR] ngrok не найден в PATH.
-  echo Установите его командой: winget install Ngrok.Ngrok
-  echo После установки выполните: ngrok update ^&^& ngrok config add-authtoken ВАШ_ТОКЕН
+  echo [ERROR] ngrok not found in PATH.
+  echo Install: winget install Ngrok.Ngrok
+  echo Then run: ngrok update ^&^& ngrok config add-authtoken YOUR_TOKEN
   echo.
   pause
   goto menu
 )
 
 echo.
-echo [START] Запускаю Gateway + Web в отдельном окне...
-start "Gemini Gateway (npm run dev)" cmd /k "cd /d "%~dp0" && npm run dev"
+echo [START] Starting Gateway + Web in a new window...
+start "Gemini Gateway" cmd /k "npm run dev"
 
 timeout /t 2 /nobreak >nul
 
-echo [START] Запускаю ngrok для порта 8081...
-echo Веб-панель остаётся локально: http://localhost:3000
-echo Публичный URL появится в окне ngrok ниже.
+echo [START] Starting ngrok tunnel for port 8081...
+echo Web UI remains local: http://localhost:3000
+echo Public URL will appear in the ngrok window.
 echo.
 if defined NGROK_DOMAIN (
   start "ngrok Tunnel" cmd /k "ngrok http --domain=%NGROK_DOMAIN% 8081"
