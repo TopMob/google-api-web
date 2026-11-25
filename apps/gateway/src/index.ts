@@ -1,5 +1,5 @@
 import fastify from "fastify";
-import { PORT, HOST } from "./config.js";
+import { PORT, HOST, LOG_LEVEL } from "./config.js";
 import { logger } from "./logger.js";
 import { registerRoutes } from "./routes.js";
 import { closeDatabaseConnections } from "./db.js";
@@ -7,7 +7,9 @@ import { normalizeError } from "./utils/errors.js";
 import { refreshModels, startModelRefreshTimer, stopModelRefreshTimer } from "./utils/models.js";
 
 const server = fastify({
-  logger: logger as any,
+  logger: {
+    level: LOG_LEVEL
+  },
   disableRequestLogging: true
 });
 
