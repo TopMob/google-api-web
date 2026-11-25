@@ -14,7 +14,10 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Gemini Personal Gateway & Playground",
-  description: "OpenAI-compatible gateway and dashboard for Google Gemini Web API"
+  description: "OpenAI-compatible gateway and dashboard for Google Gemini Web API",
+  icons: {
+    icon: [{ url: "/logo.webp", type: "image/webp" }]
+  }
 };
 
 export default function RootLayout({

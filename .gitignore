@@ -19,6 +19,7 @@ out/
 
 # production
 build/
+dist/
 
 # misc
 .DS_Store
@@ -52,3 +53,7 @@ cookies.txt
 # local store data
 data/
 apps/gateway/data/
+
+gemini-web2api-main
+AGENTS.md
+ldock
