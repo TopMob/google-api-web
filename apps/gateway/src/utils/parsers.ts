@@ -111,22 +111,25 @@ export function messagesToPrompt(
       "[System instruction]: You MUST respond with a valid JSON object. Do not include markdown code block formatting."
     );
   }
+  let hasTools = false;
+  let requiresToolCall = false;
   if (tools && tools.length > 0) {
+    hasTools = true;
     const toolDefs = tools.map((tool) => {
       const fn = tool.type === "function" ? tool.function : tool;
+      const name = fn?.name || tool.name || "";
+      if (name === "attempt_completion" || name === "ask_followup_question") {
+        requiresToolCall = true;
+      }
       return {
-        name: fn?.name || tool.name || "",
+        name,
         description: fn?.description || tool.description || "",
         parameters: fn?.parameters || tool.parameters || {}
       };
     });
     parts.push(
-      "[System instruction]: You have access to tools. To call a tool, respond with:\n" +
-        "```tool_call\n" +
-        '{"name": "func_name", "arguments": {...}}\n' +
-        "```\n" +
-        "Only use tool_call blocks when needed.\n\n" +
-        `Available tools:\n${JSON.stringify(toolDefs, null, 2)}`
+      "[System instruction]: The external IDE/client provides the following client-side tools (executed by the client, NOT inside Gemini). Never claim you lack file-reading or follow-up tools — invoke them using ```tool_call blocks.\n" +
+        `Available tools: ${JSON.stringify(toolDefs)}`
     );
   }
   for (const msg of messages) {
@@ -163,6 +166,17 @@ export function messagesToPrompt(
     } else {
       parts.push(content ? String(content) : "");
     }
+  }
+  if (hasTools) {
+    parts.push(
+      "[System reminder]: Output tool calls strictly as:\n" +
+        "```tool_call\n" +
+        '{"name": "tool_name", "arguments": {...}}\n' +
+        "```\n" +
+        (requiresToolCall
+          ? "IMPORTANT: The client requires every response to end with a ```tool_call block (e.g. attempt_completion or ask_followup_question if no other tool is needed). Do NOT reply with plain text alone."
+          : "Only use tool_call blocks when calling one of the available tools.")
+    );
   }
   return parts.filter(Boolean).join("\n\n");
 }
@@ -206,6 +220,36 @@ export function parseToolCalls(text: string): { cleanText: string; toolCalls: To
     }
   }
 
+  // Fallback: also accept ```json blocks containing {"name": ..., "arguments": ...}
+  if (toolCalls.length === 0) {
+    const jsonFenceRegex = /```json\s*([\s\S]*?)\s*```/gi;
+    let remaining = text;
+    for (const match of [...text.matchAll(jsonFenceRegex)]) {
+      let jsonStr = match[1].trim();
+      try {
+        try {
+          jsonStr = jsonrepair(jsonStr);
+        } catch {}
+        const data = JSON.parse(jsonStr);
+        if (data.name && (data.arguments !== undefined || data.parameters !== undefined)) {
+          const args = data.arguments || data.parameters || {};
+          toolCalls.push({
+            id: `call_${Math.random().toString(36).substring(2, 10)}`,
+            type: "function",
+            function: {
+              name: data.name,
+              arguments: typeof args === "string" ? args : JSON.stringify(args)
+            }
+          });
+          remaining = remaining.replace(match[0], "");
+        }
+      } catch {}
+    }
+    if (toolCalls.length > 0) {
+      return { cleanText: remaining.trim(), toolCalls };
+    }
+  }
+
   // Fallback: If no tool_call backticks were used but the entire response is a pure JSON tool call with both name and arguments
   if (
     toolCalls.length === 0 &&
@@ -235,6 +279,33 @@ export function parseToolCalls(text: string): { cleanText: string; toolCalls: To
 
   const cleanText = text.replace(regex, "").trim();
   return { cleanText, toolCalls: toolCalls.length > 0 ? toolCalls : null };
+}
+
+export function applyRooCodeToolFallback(
+  cleanText: string,
+  toolCalls: ToolCallResult[] | null,
+  tools?: ToolDefinition[]
+): ToolCallResult[] | null {
+  if (toolCalls && toolCalls.length > 0) return toolCalls;
+  if (!tools || tools.length === 0 || !cleanText.trim()) return null;
+
+  const hasAttemptCompletion = tools.some((t) => {
+    const name = t.type === "function" ? t.function?.name || t.name : t.name;
+    return name === "attempt_completion";
+  });
+
+  if (!hasAttemptCompletion) return null;
+
+  return [
+    {
+      id: `call_${Math.random().toString(36).substring(2, 10)}`,
+      type: "function",
+      function: {
+        name: "attempt_completion",
+        arguments: JSON.stringify({ result: cleanText.trim() })
+      }
+    }
+  ];
 }
 
 export function cleanJsonResponse(text: string): string {

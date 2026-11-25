@@ -6,7 +6,13 @@ import { geminiCircuitBreaker } from "../utils/circuitBreaker.js";
 import { fetchWithRetry } from "../utils/fetchWithRetry.js";
 import { logUsage } from "./auth.js";
 import { countTokens } from "../utils/tokens.js";
-import { cleanGeminiText, parseToolCalls, ToolCallResult } from "../utils/parsers.js";
+import {
+  cleanGeminiText,
+  parseToolCalls,
+  applyRooCodeToolFallback,
+  ToolCallResult,
+  ToolDefinition
+} from "../utils/parsers.js";
 import { logger } from "../logger.js";
 import { normalizeError } from "../utils/errors.js";
 
@@ -210,7 +216,8 @@ export async function handleChatStreamWithTools(
   startTime: number,
   signal?: AbortSignal,
   fileRefs?: string[],
-  includeUsage = false
+  includeUsage = false,
+  tools?: ToolDefinition[]
 ) {
   const customCookie = auth.customCookie;
   let responseText = "";
@@ -340,7 +347,9 @@ export async function handleChatStreamWithTools(
       reader.cancel();
     } catch {}
 
-    const { cleanText, toolCalls } = parseToolCalls(responseText);
+    const parsed = parseToolCalls(responseText);
+    const cleanText = parsed.cleanText;
+    const toolCalls = applyRooCodeToolFallback(cleanText, parsed.toolCalls, tools);
 
     const promptTokens = countTokens(prompt);
     const completionTokens = countTokens(cleanText);

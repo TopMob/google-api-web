@@ -16,6 +16,7 @@ import {
 import { resolveModelConfig, guessMode, getModels } from "../src/utils/models.js";
 import { buildGeminiRequest } from "../src/services/gemini.js";
 import { discoverGoogleAccounts } from "../src/utils/cookie.js";
+import { parseToolCalls, messagesToPrompt, applyRooCodeToolFallback } from "../src/utils/parsers.js";
 
 describe("Multimodal SSRF & Input Validation", () => {
   it("should detect private, loopback, and link-local IPv4/IPv6 addresses", () => {
@@ -418,5 +419,35 @@ describe("Multi-Account AuthUser & Discovery", () => {
     } finally {
       fetchMock.mockRestore();
     }
+  });
+});
+
+describe("Roo Code & IDE Tool Calling Adaptation", () => {
+  it("should parse ```json fenced tool calls when Gemini uses json fence", () => {
+    const raw = '```json\n{"name":"read_file","arguments":{"path":"README.md"}}\n```';
+    const res = parseToolCalls(raw);
+    expect(res.cleanText).toBe("");
+    expect(res.toolCalls).toHaveLength(1);
+    expect(res.toolCalls![0].function.name).toBe("read_file");
+    expect(JSON.parse(res.toolCalls![0].function.arguments)).toEqual({ path: "README.md" });
+  });
+
+  it("should place tool reminder at the end of messagesToPrompt and synthesize attempt_completion fallback", () => {
+    const tools = [
+      { type: "function", function: { name: "attempt_completion", description: "Finish task", parameters: {} } }
+    ];
+    const prompt = messagesToPrompt([{ role: "user", content: "привет" }], tools);
+    expect(prompt).toContain("[System reminder]:");
+    expect(prompt.indexOf("привет")).toBeLessThan(prompt.indexOf("[System reminder]:"));
+
+    const fallback = applyRooCodeToolFallback("Привет! Вижу репозиторий.", null, tools);
+    expect(fallback).toHaveLength(1);
+    expect(fallback![0].function.name).toBe("attempt_completion");
+    expect(JSON.parse(fallback![0].function.arguments)).toEqual({ result: "Привет! Вижу репозиторий." });
+
+    const noFallback = applyRooCodeToolFallback("Hello", null, [
+      { type: "function", function: { name: "search_web", description: "Search", parameters: {} } }
+    ]);
+    expect(noFallback).toBeNull();
   });
 });

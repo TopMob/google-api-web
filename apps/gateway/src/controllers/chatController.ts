@@ -3,7 +3,13 @@ import crypto from "crypto";
 import { resolveModelConfig } from "../utils/models.js";
 import { verifyApiKey, logUsage } from "../services/auth.js";
 import { geminiStreamGenerate } from "../services/gemini.js";
-import { extractResponseText, parseToolCalls, messagesToPrompt, cleanJsonResponse } from "../utils/parsers.js";
+import {
+  extractResponseText,
+  parseToolCalls,
+  applyRooCodeToolFallback,
+  messagesToPrompt,
+  cleanJsonResponse
+} from "../utils/parsers.js";
 import { geminiCircuitBreaker } from "../utils/circuitBreaker.js";
 import { normalizeError } from "../utils/errors.js";
 import { chatCompletionSchema } from "../utils/schemas.js";
@@ -113,7 +119,8 @@ export async function chatCompletionController(request: FastifyRequest, reply: F
         startTime,
         abortController.signal,
         fileRefs,
-        includeUsage
+        includeUsage,
+        req.tools
       );
     }
     return reply;
@@ -138,7 +145,7 @@ export async function chatCompletionController(request: FastifyRequest, reply: F
     if (req.tools && req.tools.length > 0) {
       const parsed = parseToolCalls(text);
       cleanText = parsed.cleanText;
-      toolCalls = parsed.toolCalls;
+      toolCalls = applyRooCodeToolFallback(cleanText, parsed.toolCalls, req.tools);
     }
 
     let contentText = cleanText;
