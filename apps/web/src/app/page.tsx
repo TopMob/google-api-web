@@ -1,148 +1,101 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import Sidebar from "../components/Sidebar";
+import { useState, useEffect, useRef, useCallback, useSyncExternalStore } from "react";
+import Sidebar, { TabType } from "../components/Sidebar";
 import Header from "../components/Header";
-import PlaygroundTab from "../components/PlaygroundTab";
-import KeysTab from "../components/KeysTab";
-import LogsTab from "../components/LogsTab";
-import FaqTab from "../components/FaqTab";
-import QuickCopyBar from "../components/QuickCopyBar";
+import ChatTab, { ChatMessage } from "../components/ChatTab";
+import ConnectTab, { ApiKeyItem, CookieStatusData, ProjectItem } from "../components/ConnectTab";
+import LogsTab, { StatsSummary, UsageLogItem } from "../components/LogsTab";
 import { Language } from "../utils/i18n";
 
-interface Message {
-  role: "user" | "assistant";
-  content: string;
+const LANG_STORAGE_KEY = "gemini_web2api_lang";
+
+function subscribeLang(callback: () => void) {
+  window.addEventListener("storage", callback);
+  window.addEventListener("gemini-lang-change", callback);
+  return () => {
+    window.removeEventListener("storage", callback);
+    window.removeEventListener("gemini-lang-change", callback);
+  };
 }
 
-interface Project {
-  id: string;
-  name: string;
-  created_at: string;
+function getLangSnapshot(): Language {
+  try {
+    const saved = localStorage.getItem(LANG_STORAGE_KEY);
+    if (saved === "ru" || saved === "en") return saved;
+  } catch {}
+  return "ru";
 }
 
-interface ApiKey {
-  id: string;
-  key: string;
-  project_id: string;
-  name: string;
-  active: boolean;
-  projects?: { name: string };
-  allowed_models?: string[];
-  daily_requests_limit?: number;
-  daily_tokens_limit?: number;
-  rate_limit_rpm?: number;
-  expires_at?: string;
-  created_at: string;
-}
-
-interface UsageLog {
-  id: string;
-  model: string;
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-  duration_ms: number;
-  status_code: number;
-  created_at: string;
-  projects?: { name: string };
-  api_keys?: { name: string };
+function getLangServerSnapshot(): Language {
+  return "ru";
 }
 
 export default function Home() {
-  // Tabs & General Navigation state
-  const [activeTab, setActiveTab] = useState<"playground" | "keys" | "logs" | "faq">("playground");
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<TabType>("chat");
+  const lang = useSyncExternalStore(subscribeLang, getLangSnapshot, getLangServerSnapshot);
 
-  // Localization state (Russian by default, English secondary)
-  const [lang, setLang] = useState<Language>("ru");
-
-  useEffect(() => {
-    try {
-      const savedLang = localStorage.getItem("gemini_web2api_lang") as Language | null;
-      if (savedLang === "ru" || savedLang === "en") {
-        setLang(savedLang);
-      }
-    } catch {}
-  }, []);
-
-  const handleSetLang = (newLang: Language) => {
-    setLang(newLang);
-    try {
-      localStorage.setItem("gemini_web2api_lang", newLang);
-    } catch {}
-  };
-
-  // Upstream Connection state
-  const [gatewayStatus, setGatewayStatus] = useState<"online" | "offline" | "checking">("checking");
+  // Gateway & model state
+  const [gatewayStatus, setGatewayStatus] = useState<"online" | "warning" | "offline" | "checking">("checking");
+  const [cookieValid, setCookieValid] = useState<boolean | null>(null);
   const [gatewayUrl, setGatewayUrl] = useState("http://127.0.0.1:8081");
   const [models, setModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>("");
+  const [thinkDepth, setThinkDepth] = useState<"auto" | "0" | "4">("auto");
 
-  // Dashboard Stats state
-  const [stats, setStats] = useState({
-    requests: 0,
-    estimatedTokens: 0,
-    successRate: 100,
-    activeTime: "0m"
+  // Projects, keys, cookies, logs
+  const [projects, setProjects] = useState<ProjectItem[]>([]);
+  const [apiKeys, setApiKeys] = useState<ApiKeyItem[]>([]);
+  const [activeKey, setActiveKey] = useState<string>("sk-personal-gw");
+  const [cookieStatus, setCookieStatus] = useState<CookieStatusData | null>(null);
+  const [recentLogs, setRecentLogs] = useState<UsageLogItem[]>([]);
+  const [stats, setStats] = useState<StatsSummary>({
+    totalRequests: 0,
+    totalTokens: 0,
+    totalPromptTokens: 0,
+    totalCompletionTokens: 0,
+    avgDurationMs: 0,
+    successRate: 100
   });
 
-  // Projects & API Keys state
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
-  const [recentLogs, setRecentLogs] = useState<UsageLog[]>([]);
-
-  const [newProjectName, setNewProjectName] = useState("");
-  const [newKeyName, setNewKeyName] = useState("");
-  const [newKeyProjectId, setNewKeyProjectId] = useState("00000000-0000-0000-0000-000000000000");
-  const [dailyRequestsLimit, setDailyRequestsLimit] = useState("");
-  const [dailyTokensLimit, setDailyTokensLimit] = useState("");
-  const [rateLimitRpm, setRateLimitRpm] = useState("");
-  const [newKeyExpiration, setNewKeyExpiration] = useState("never");
-  const [playgroundKey, setPlaygroundKey] = useState("sk-personal-gw");
-
-  // Playground Chat state
-  const [messages, setMessages] = useState<Message[]>([]);
+  // Chat state
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
-  // Faq Tab / Cookie testing state
-  const [cookieTestInput, setCookieTestInput] = useState("");
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [isTestingCookie, setIsTestingCookie] = useState(false);
-  const [activeProvider, setActiveProvider] = useState<
-    "opencode" | "vscode" | "codex" | "codex_cli" | "openclaw" | "cursor" | "jetbrains" | "zed"
-  >("opencode");
-  const [activePlatform, setActivePlatform] = useState<"windows" | "macos" | "linux">("windows");
+  const handleSetLang = (newLang: Language) => {
+    try {
+      localStorage.setItem(LANG_STORAGE_KEY, newLang);
+      window.dispatchEvent(new Event("gemini-lang-change"));
+    } catch {}
+  };
 
-  // Timer Ref
-  const startTimeRef = useRef<number>(Date.now());
-
-  // API Call: Fetch status of Fastify Gateway health
-  const checkHealth = async () => {
+  const checkHealth = useCallback(async () => {
     try {
       const res = await fetch("/api/health");
       const data = await res.json();
-      if (data.status === "online") {
-        setGatewayStatus("online");
-        setGatewayUrl(data.gatewayUrl);
+      if (data.gatewayUrl) setGatewayUrl(data.gatewayUrl);
+      if (data.status === "online" || data.status === "warning") {
+        setGatewayStatus(data.status);
+        if (typeof data.cookieValid === "boolean" || data.cookieValid === null) {
+          setCookieValid(data.cookieValid);
+        }
       } else {
         setGatewayStatus("offline");
       }
     } catch {
       setGatewayStatus("offline");
     }
-  };
+  }, []);
 
-  // API Call: Fetch list of supported models from gateway
-  const fetchModels = async () => {
+  const fetchModels = useCallback(async () => {
     try {
       const res = await fetch("/api/v1/models");
       if (res.ok) {
         const data = await res.json();
-        if (data.data && Array.isArray(data.data)) {
-          const list: string[] = data.data.map((m: any) => m.id);
+        if (Array.isArray(data.data)) {
+          const list: string[] = data.data.map((m: { id: string }) => m.id);
           if (list.length > 0) {
             setModels(list);
             setSelectedModel((prev) => (prev && list.includes(prev) ? prev : list[0]));
@@ -150,208 +103,205 @@ export default function Home() {
         }
       }
     } catch {}
-  };
-
-  // API Call: Retrieve Projects, Keys, Stats, and Logs
-  const fetchDbData = async () => {
-    try {
-      const projRes = await fetch("/api/projects");
-      if (projRes.ok) {
-        const projData = await projRes.json();
-        setProjects(projData);
-        if (projData.length > 0 && !newKeyProjectId) {
-          setNewKeyProjectId(projData[0].id);
-        }
-      }
-
-      const keysRes = await fetch("/api/keys");
-      if (keysRes.ok) {
-        setApiKeys(await keysRes.json());
-      }
-
-      const statsRes = await fetch("/api/stats");
-      if (statsRes.ok) {
-        const statsData = await statsRes.json();
-        setStats((prev) => ({
-          ...prev,
-          requests: statsData.totalRequests,
-          estimatedTokens: statsData.totalTokens,
-          successRate: statsData.successRate
-        }));
-        setRecentLogs(statsData.recentLogs);
-      }
-    } catch {}
-  };
-
-  // Lifecycle hook for initial load and polling intervals
-  useEffect(() => {
-    checkHealth();
-    fetchModels();
-    fetchDbData();
-
-    const interval = setInterval(() => {
-      checkHealth();
-      fetchDbData();
-
-      const diffMins = Math.floor((Date.now() - startTimeRef.current) / 60000);
-      setStats((prev) => ({
-        ...prev,
-        activeTime: `${diffMins}m`
-      }));
-    }, 30000);
-
-    return () => clearInterval(interval);
   }, []);
 
-  // Action: Copy active API key string
-  const copyText = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedKey(text);
-    setTimeout(() => setCopiedKey(null), 2000);
+  const fetchCookieStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/cookies/status");
+      if (res.ok) {
+        const data: CookieStatusData = await res.json();
+        setCookieStatus(data);
+        if (typeof data.isValid === "boolean" || data.isValid === null) {
+          setCookieValid(data.isValid);
+        }
+      }
+    } catch {}
+  }, []);
+
+  const fetchDbData = useCallback(async () => {
+    try {
+      const [projRes, keysRes, statsRes] = await Promise.all([
+        fetch("/api/projects"),
+        fetch("/api/keys"),
+        fetch("/api/stats?limit=100")
+      ]);
+
+      if (projRes.ok) {
+        setProjects(await projRes.json());
+      }
+      if (keysRes.ok) {
+        const keysData: ApiKeyItem[] = await keysRes.json();
+        setApiKeys(keysData);
+        setActiveKey((prev) => {
+          const activeList = keysData.filter((k) => k.active);
+          if (activeList.some((k) => k.key === prev)) return prev;
+          return activeList[0]?.key || prev;
+        });
+      }
+      if (statsRes.ok) {
+        const statsData = await statsRes.json();
+        setStats({
+          totalRequests: statsData.totalRequests ?? 0,
+          totalTokens: statsData.totalTokens ?? 0,
+          totalPromptTokens: statsData.totalPromptTokens ?? 0,
+          totalCompletionTokens: statsData.totalCompletionTokens ?? 0,
+          avgDurationMs: statsData.avgDurationMs ?? 0,
+          successRate: statsData.successRate ?? 100
+        });
+        setRecentLogs(Array.isArray(statsData.recentLogs) ? statsData.recentLogs : []);
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    const initialTimer = setTimeout(() => {
+      void Promise.all([checkHealth(), fetchModels(), fetchDbData(), fetchCookieStatus()]);
+    }, 0);
+
+    const interval = setInterval(() => {
+      void checkHealth();
+      void fetchDbData();
+    }, 30000);
+
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(interval);
+    };
+  }, [checkHealth, fetchModels, fetchDbData, fetchCookieStatus]);
+
+  const handleCreateProject = async (name: string) => {
+    const res = await fetch("/api/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name })
+    });
+    if (res.ok) {
+      await fetchDbData();
+    }
   };
 
-  // Action: Copy documentation configuration templates
-  const copyGuideText = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
+  const handleCreateKey = async (payload: {
+    name: string;
+    project_id: string;
+    expires_at: string | null;
+    rate_limit_rpm: number | null;
+    daily_requests_limit: number | null;
+    daily_tokens_limit: number | null;
+  }) => {
+    const res = await fetch("/api/keys", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) {
+      await fetchDbData();
+    }
   };
 
-  // Action: Save cookie credentials and validate against gateway endpoints
-  const handleTestCookie = async () => {
-    if (!cookieTestInput.trim()) return;
-    setIsTestingCookie(true);
-    setTestResult(null);
+  const handleToggleKey = async (id: string, currentStatus: boolean) => {
+    const res = await fetch("/api/keys", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, active: !currentStatus })
+    });
+    if (res.ok) {
+      await fetchDbData();
+    }
+  };
+
+  const handleDeleteKey = async (id: string) => {
+    const res = await fetch(`/api/keys?id=${encodeURIComponent(id)}`, {
+      method: "DELETE"
+    });
+    if (res.ok) {
+      await fetchDbData();
+    }
+  };
+
+  const handleSaveCookie = async (cookieStr: string): Promise<{ success: boolean; message: string }> => {
     try {
       const res = await fetch("/api/cookies/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cookie: cookieTestInput })
+        body: JSON.stringify({ cookie: cookieStr })
       });
-
       const data = await res.json();
-
-      if (res.ok && data.success) {
-        setTestResult({
-          success: true,
-          message: data.message || "Cookie saved to cookie.txt & verified with Google Gemini!"
-        });
-        // Dynamically refresh models list now that fresh cookies are active
-        fetchModels();
-        checkHealth();
-      } else {
-        setTestResult({
-          success: false,
-          message: data.message || "Validation failed. Inspect the copied cookie credentials."
-        });
-      }
-    } catch (err: any) {
-      setTestResult({
+      await Promise.all([fetchCookieStatus(), checkHealth(), fetchModels()]);
+      return {
+        success: Boolean(res.ok && data.success),
+        message: data.message || (res.ok ? "Saved" : "Validation failed")
+      };
+    } catch (err) {
+      return {
         success: false,
-        message: `Failed to contact gateway server: ${err.message}`
-      });
-    } finally {
-      setIsTestingCookie(false);
+        message: err instanceof Error ? err.message : "Failed to reach gateway"
+      };
     }
   };
 
-  // Action: Register a new developer project
-  const handleCreateProject = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newProjectName.trim()) return;
-    try {
-      const res = await fetch("/api/projects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newProjectName })
-      });
-      if (res.ok) {
-        setNewProjectName("");
-        fetchDbData();
-      }
-    } catch {}
+  const handleStop = () => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    setIsLoading(false);
   };
 
-  // Action: Generate a new client API Key
-  const handleCreateKey = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newKeyName.trim() || !newKeyProjectId) return;
-    try {
-      let expiresAt: string | null = null;
-      if (newKeyExpiration !== "never") {
-        const now = new Date();
-        if (newKeyExpiration === "1h") {
-          now.setHours(now.getHours() + 1);
-        } else if (newKeyExpiration === "24h") {
-          now.setHours(now.getHours() + 24);
-        } else if (newKeyExpiration === "7d") {
-          now.setDate(now.getDate() + 7);
-        } else if (newKeyExpiration === "30d") {
-          now.setDate(now.getDate() + 30);
-        } else if (newKeyExpiration === "90d") {
-          now.setDate(now.getDate() + 90);
-        }
-        expiresAt = now.toISOString();
-      }
-
-      const res = await fetch("/api/keys", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: newKeyName,
-          project_id: newKeyProjectId,
-          expires_at: expiresAt
-        })
-      });
-      if (res.ok) {
-        setNewKeyName("");
-        setNewKeyExpiration("never");
-        fetchDbData();
-      }
-    } catch {}
+  const handleClear = () => {
+    handleStop();
+    setMessages([]);
   };
 
-  // Action: Toggle client API Key activation state
-  const handleToggleKey = async (id: string, currentStatus: boolean) => {
-    try {
-      const res = await fetch("/api/keys", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, active: !currentStatus })
-      });
-      if (res.ok) {
-        fetchDbData();
-      }
-    } catch {}
-  };
+  const handleSubmit = async (textOverride?: string, image?: string) => {
+    const promptText = textOverride !== undefined ? textOverride : input;
+    if ((!promptText.trim() && !image) || isLoading) return;
 
-  // Action: Submit query to playground chat and handle text stream response
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || isLoading) return;
-
-    const userMsg: Message = { role: "user", content: input };
-    const newMessages = [...messages, userMsg];
-
-    setMessages(newMessages);
-    setInput("");
+    const userMsg: ChatMessage = {
+      role: "user",
+      content: promptText,
+      image
+    };
+    const nextMessages = [...messages, userMsg];
+    setMessages([...nextMessages, { role: "assistant", content: "" }]);
+    if (textOverride === undefined) {
+      setInput("");
+    }
     setIsLoading(true);
 
-    const assistantMsgIndex = newMessages.length;
-    setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+    const assistantIndex = nextMessages.length;
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    const modelToUse =
+      thinkDepth !== "auto" && selectedModel && !selectedModel.includes("@think=")
+        ? `${selectedModel}@think=${thinkDepth}`
+        : selectedModel || "gemini-3.8-flash";
+
+    const apiMessages = nextMessages.map((m) => {
+      if (m.image) {
+        const parts: Array<Record<string, unknown>> = [];
+        if (m.content.trim()) {
+          parts.push({ type: "text", text: m.content });
+        }
+        parts.push({ type: "image_url", image_url: { url: m.image } });
+        return { role: m.role, content: parts };
+      }
+      return { role: m.role, content: m.content };
+    });
 
     try {
       const res = await fetch("/api/v1/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${playgroundKey}`
+          Authorization: `Bearer ${activeKey}`
         },
         body: JSON.stringify({
-          model: selectedModel,
-          messages: newMessages,
+          model: modelToUse,
+          messages: apiMessages,
           stream: true
-        })
+        }),
+        signal: controller.signal
       });
 
       if (!res.ok) {
@@ -359,162 +309,132 @@ export default function Home() {
       }
 
       const reader = res.body?.getReader();
-      if (!reader) throw new Error("No reader");
+      if (!reader) throw new Error("No response stream");
 
       const decoder = new TextDecoder();
       let accumulated = "";
-
       let streamEnded = false;
+
       while (!streamEnded) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value);
+        const chunk = decoder.decode(value, { stream: true });
         const lines = chunk.split("\n");
 
         for (const line of lines) {
           const trimmed = line.trim();
-          if (trimmed.startsWith("data: ")) {
-            const dataStr = trimmed.slice(6).trim();
-            if (dataStr === "[DONE]") {
-              streamEnded = true;
-              setIsLoading(false);
-              break;
-            }
-            try {
-              const parsed = JSON.parse(dataStr);
-              const content = parsed.choices?.[0]?.delta?.content || "";
-              if (content) {
-                accumulated += content;
-                setMessages((prev) => {
-                  const next = [...prev];
-                  if (next[assistantMsgIndex]) {
-                    next[assistantMsgIndex] = {
-                      role: "assistant",
-                      content: accumulated
-                    };
-                  }
-                  return next;
-                });
-              }
-            } catch {}
+          if (!trimmed.startsWith("data: ")) continue;
+          const dataStr = trimmed.slice(6).trim();
+          if (dataStr === "[DONE]") {
+            streamEnded = true;
+            break;
           }
+          try {
+            const parsed = JSON.parse(dataStr);
+            const delta = parsed.choices?.[0]?.delta?.content || "";
+            if (delta) {
+              accumulated += delta;
+              setMessages((prev) => {
+                const updated = [...prev];
+                if (updated[assistantIndex]) {
+                  updated[assistantIndex] = { role: "assistant", content: accumulated };
+                }
+                return updated;
+              });
+            }
+          } catch {}
         }
       }
 
       fetchDbData();
-    } catch (err: any) {
-      let errMsg = "Failed to stream execution response from local gateway.";
-      if (err?.message) {
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return;
+      }
+      let errMsg = "Failed to receive response from gateway.";
+      if (err instanceof Error && err.message) {
         try {
           const parsed = JSON.parse(err.message);
-          if (parsed?.error?.message) {
-            errMsg = parsed.error.message;
-          } else if (typeof parsed?.error === "string") {
-            errMsg = parsed.error;
-          } else {
-            errMsg = err.message;
-          }
+          errMsg = parsed?.error?.message || (typeof parsed?.error === "string" ? parsed.error : err.message);
         } catch {
           errMsg = err.message;
         }
       }
 
       setMessages((prev) => {
-        const next = [...prev];
-        if (next[assistantMsgIndex]) {
-          next[assistantMsgIndex] = {
-            role: "assistant",
-            content: `Error: ${errMsg}`
-          };
+        const updated = [...prev];
+        if (updated[assistantIndex]) {
+          updated[assistantIndex] = { role: "assistant", content: `Error: ${errMsg}` };
         }
-        return next;
+        return updated;
       });
     } finally {
+      abortRef.current = null;
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="flex h-screen bg-[#07080a] overflow-hidden text-zinc-300 font-sans">
-      {/* Sidebar navigation */}
+    <div className="flex h-screen bg-[#0a0b0e] overflow-hidden text-[#eceef4]">
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        gatewayUrl={gatewayUrl}
         gatewayStatus={gatewayStatus}
-        playgroundKey={playgroundKey}
-        setPlaygroundKey={setPlaygroundKey}
-        apiKeys={apiKeys}
+        cookieValid={cookieValid}
         lang={lang}
+        setLang={handleSetLang}
       />
 
-      {/* Main console content panel */}
-      <main className="flex-1 flex flex-col justify-between bg-[#07080a] overflow-hidden">
+      <main className="flex-1 flex flex-col min-w-0 bg-[#0a0b0e] overflow-hidden">
         <Header
           activeTab={activeTab}
           selectedModel={selectedModel}
           setSelectedModel={setSelectedModel}
           models={models}
           fetchModels={fetchModels}
-          stats={stats}
+          thinkDepth={thinkDepth}
+          setThinkDepth={setThinkDepth}
           lang={lang}
-          setLang={handleSetLang}
         />
 
-        {/* Quick API Copy Hub */}
-        <QuickCopyBar gatewayUrl={gatewayUrl} activeKey={playgroundKey} selectedModel={selectedModel} lang={lang} />
-
-        {/* Tab viewports */}
-        {activeTab === "playground" && (
-          <PlaygroundTab
+        {activeTab === "chat" ? (
+          <ChatTab
             messages={messages}
             input={input}
             setInput={setInput}
             isLoading={isLoading}
+            cookieValid={cookieValid}
+            onGoToConnect={() => setActiveTab("connect")}
             handleSubmit={handleSubmit}
-            gatewayStatus={gatewayStatus}
+            handleStop={handleStop}
+            handleClear={handleClear}
             lang={lang}
           />
-        )}
+        ) : null}
 
-        {activeTab === "keys" && (
-          <KeysTab
-            apiKeys={apiKeys}
-            newKeyName={newKeyName}
-            setNewKeyName={setNewKeyName}
-            newKeyExpiration={newKeyExpiration}
-            setNewKeyExpiration={setNewKeyExpiration}
-            handleCreateKey={handleCreateKey}
-            handleToggleKey={handleToggleKey}
-            copiedKey={copiedKey}
-            copyText={copyText}
-            lang={lang}
-          />
-        )}
-
-        {activeTab === "logs" && <LogsTab recentLogs={recentLogs} lang={lang} />}
-
-        {activeTab === "faq" && (
-          <FaqTab
-            cookieTestInput={cookieTestInput}
-            setCookieTestInput={setCookieTestInput}
-            testResult={testResult}
-            isTestingCookie={isTestingCookie}
-            handleTestCookie={handleTestCookie}
-            activeProvider={activeProvider}
-            setActiveProvider={setActiveProvider}
-            activePlatform={activePlatform}
-            setActivePlatform={setActivePlatform}
-            copiedId={copiedId}
-            copyGuideText={copyGuideText}
-            selectedModel={selectedModel}
-            activeKey={playgroundKey}
+        {activeTab === "connect" ? (
+          <ConnectTab
             gatewayUrl={gatewayUrl}
             models={models}
+            selectedModel={selectedModel}
+            projects={projects}
+            apiKeys={apiKeys}
+            activeKey={activeKey}
+            setActiveKey={setActiveKey}
+            onCreateProject={handleCreateProject}
+            onCreateKey={handleCreateKey}
+            onToggleKey={handleToggleKey}
+            onDeleteKey={handleDeleteKey}
+            cookieStatus={cookieStatus}
+            onSaveCookie={handleSaveCookie}
             lang={lang}
           />
-        )}
+        ) : null}
+
+        {activeTab === "logs" ? (
+          <LogsTab stats={stats} recentLogs={recentLogs} onRefresh={fetchDbData} lang={lang} />
+        ) : null}
       </main>
     </div>
   );

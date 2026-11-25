@@ -1,23 +1,19 @@
 "use client";
 
 import React, { useState } from "react";
-import { Bot, Key, Terminal, HelpCircle, Cpu, RefreshCw, Copy, Check, Globe } from "lucide-react";
+import { RefreshCw, MessageSquare, Plug, Activity } from "lucide-react";
 import { translations, Language } from "../utils/i18n";
+import { TabType } from "./Sidebar";
 
 interface HeaderProps {
-  activeTab: "playground" | "keys" | "logs" | "faq";
+  activeTab: TabType;
   selectedModel: string;
   setSelectedModel: (model: string) => void;
   models: string[];
   fetchModels: () => Promise<void>;
-  stats: {
-    requests: number;
-    estimatedTokens: number;
-    successRate: number;
-    activeTime: string;
-  };
+  thinkDepth: "auto" | "0" | "4";
+  setThinkDepth: (depth: "auto" | "0" | "4") => void;
   lang: Language;
-  setLang: (lang: Language) => void;
 }
 
 export default function Header({
@@ -26,37 +22,22 @@ export default function Header({
   setSelectedModel,
   models,
   fetchModels,
-  stats,
-  lang,
-  setLang
+  thinkDepth,
+  setThinkDepth,
+  lang
 }: HeaderProps) {
-  const [copiedModel, setCopiedModel] = useState(false);
   const t = translations[lang];
-
-  const handleCopyModel = () => {
-    navigator.clipboard.writeText(selectedModel);
-    setCopiedModel(true);
-    setTimeout(() => setCopiedModel(false), 2000);
-  };
-
-  const getTabInfo = () => {
-    switch (activeTab) {
-      case "playground":
-        return { label: t.tabPlayground, icon: Bot };
-      case "keys":
-        return { label: t.tabKeys, icon: Key };
-      case "logs":
-        return { label: t.tabLogs, icon: Terminal };
-      case "faq":
-        return { label: t.tabFaq, icon: HelpCircle };
-    }
-  };
-
-  const TabInfo = getTabInfo();
-  const Icon = TabInfo.icon;
-
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [customInputMode, setCustomInputMode] = useState(false);
+
+  const tabMeta =
+    activeTab === "chat"
+      ? { label: t.tabChat, icon: MessageSquare }
+      : activeTab === "connect"
+        ? { label: t.tabConnect, icon: Plug }
+        : { label: t.tabLogs, icon: Activity };
+
+  const Icon = tabMeta.icon;
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -68,130 +49,87 @@ export default function Header({
   };
 
   return (
-    <header className="h-14 border-b border-zinc-800 bg-[#090a0f] px-6 flex items-center justify-between font-sans select-none shrink-0">
-      {/* Tab Indicator & Model Selector */}
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2 text-xs font-bold text-white uppercase tracking-wider font-mono">
-          <Icon size={14} className="text-cyan-400" />
-          <span>{TabInfo.label}</span>
-        </div>
-
-        <span className="h-4 w-px bg-zinc-800" />
-
-        {/* Model Dropdown & Custom Model Input */}
-        <div className="flex items-center gap-2 text-xs">
-          <Cpu size={13} className="text-zinc-500" />
-          <span className="text-zinc-400 font-mono text-[11px]">{t.modelLabel}</span>
-          {customInputMode ? (
-            <input
-              type="text"
-              value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value)}
-              placeholder={t.customModelPlaceholder}
-              className="bg-[#0d0e12] border border-cyan-500/40 focus:border-cyan-400 rounded px-2 py-0.5 text-[11px] font-mono text-zinc-200 outline-none w-44 transition"
-            />
-          ) : (
-            <div className="relative flex items-center">
-              <select
-                value={selectedModel}
-                onChange={(e) => setSelectedModel(e.target.value)}
-                className="bg-[#0d0e12] border border-zinc-850 hover:border-zinc-700 rounded pl-2.5 pr-7 py-1 text-[11px] font-mono text-zinc-300 outline-none transition cursor-pointer appearance-none"
-              >
-                {models.length === 0 ? (
-                  <option value="" disabled className="bg-[#090a0f] font-mono">
-                    {t.modelLoading}
-                  </option>
-                ) : (
-                  models.map((m) => (
-                    <option key={m} value={m} className="bg-[#090a0f] font-mono">
-                      {m}
-                    </option>
-                  ))
-                )}
-              </select>
-              <div className="absolute right-2 pointer-events-none text-zinc-500">
-                <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                </svg>
-              </div>
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={() => setCustomInputMode((prev) => !prev)}
-            className="text-[10px] font-mono text-zinc-500 hover:text-zinc-300 px-1.5 py-0.5 border border-zinc-800 hover:border-zinc-700 rounded transition"
-            title={customInputMode ? t.btnList : t.btnCustom}
-          >
-            {customInputMode ? t.btnList : t.btnCustom}
-          </button>
-          <button
-            onClick={handleCopyModel}
-            disabled={!selectedModel}
-            className="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/20 hover:border-cyan-500/40 rounded px-2.5 py-1 text-[10px] font-mono transition flex items-center gap-1.5 shrink-0 disabled:opacity-40"
-            title={t.btnCopyModel}
-          >
-            {copiedModel ? (
-              <>
-                <Check size={11} className="text-emerald-400" />
-                <span>{t.copiedBadge}</span>
-              </>
-            ) : (
-              <>
-                <Copy size={11} />
-                <span>{t.btnCopyModel}</span>
-              </>
-            )}
-          </button>
-          <button
-            onClick={handleRefresh}
-            disabled={isRefreshing}
-            className="text-zinc-500 hover:text-cyan-400 transition-colors p-1 disabled:opacity-50"
-            title={t.btnRefreshModels}
-          >
-            <RefreshCw size={11} className={isRefreshing ? "animate-spin text-cyan-400" : ""} />
-          </button>
-        </div>
+    <header className="h-14 border-b border-[#222633] bg-[#0d0f14] px-4 md:px-6 flex items-center justify-between gap-3 shrink-0 select-none">
+      {/* Screen title */}
+      <div className="flex items-center gap-2.5 min-w-0">
+        <Icon size={16} className="text-[#4f8cff] shrink-0" />
+        <h2 className="text-sm font-semibold text-[#eceef4] truncate">{tabMeta.label}</h2>
       </div>
 
-      {/* Right Side: Stats + Language Switcher */}
-      <div className="flex items-center gap-5">
-        {/* Live Stats */}
-        <div className="hidden lg:flex items-center gap-5">
-          {[
-            { label: t.statRequests, value: stats.requests },
-            { label: t.statTokens, value: stats.estimatedTokens },
-            { label: t.statSuccessRate, value: `${stats.successRate}%` },
-            { label: t.statSessionTime, value: stats.activeTime }
-          ].map((stat, idx) => (
-            <div key={idx} className="text-right border-l border-zinc-900 pl-5 first:border-0 first:pl-0">
-              <div className="text-[8px] text-zinc-500 uppercase font-mono tracking-wider font-bold">{stat.label}</div>
-              <div className="text-xs font-bold text-zinc-300 font-mono tracking-tight">{stat.value}</div>
-            </div>
-          ))}
-        </div>
+      {/* Model & Think controls (single canonical place, no duplicate copy buttons) */}
+      <div className="flex items-center gap-2 min-w-0">
+        <label htmlFor="model-selector" className="hidden sm:inline text-xs text-[#8e95a8]">
+          {t.modelLabel}
+        </label>
 
-        <span className="hidden lg:block h-4 w-px bg-zinc-800" />
+        {customInputMode ? (
+          <input
+            id="model-selector"
+            type="text"
+            value={selectedModel}
+            onChange={(e) => setSelectedModel(e.target.value)}
+            placeholder={t.customModelPlaceholder}
+            className="bg-[#171a22] border border-[#4f8cff]/50 focus:border-[#4f8cff] rounded-lg px-2.5 py-1 text-xs font-mono text-[#eceef4] outline-none w-40 sm:w-48 transition"
+          />
+        ) : (
+          <select
+            id="model-selector"
+            value={selectedModel}
+            onChange={(e) => setSelectedModel(e.target.value)}
+            className="bg-[#171a22] border border-[#222633] hover:border-[#363d52] rounded-lg px-2.5 py-1 text-xs font-mono text-[#eceef4] outline-none transition cursor-pointer max-w-[180px] sm:max-w-xs"
+          >
+            {models.length === 0 ? (
+              <option value="" disabled>
+                {t.modelLoading}
+              </option>
+            ) : (
+              models.map((m) => (
+                <option key={m} value={m} className="bg-[#111319]">
+                  {m}
+                </option>
+              ))
+            )}
+          </select>
+        )}
 
-        {/* Language Switcher Pill Toggle */}
-        <div className="flex items-center bg-[#0d0e12] border border-zinc-800 rounded p-0.5 text-[10px] font-mono">
-          <Globe size={11} className="text-zinc-500 mx-1.5" />
-          <button
-            onClick={() => setLang("ru")}
-            className={`px-2 py-0.5 rounded transition ${
-              lang === "ru" ? "bg-cyan-500/20 text-cyan-400 font-bold shadow-sm" : "text-zinc-500 hover:text-zinc-300"
-            }`}
+        <button
+          type="button"
+          onClick={() => setCustomInputMode((prev) => !prev)}
+          className="text-xs text-[#8e95a8] hover:text-[#eceef4] px-2 py-1 border border-[#222633] hover:border-[#363d52] rounded-lg transition-colors"
+        >
+          {customInputMode ? t.btnList : t.btnCustom}
+        </button>
+
+        {activeTab === "chat" ? (
+          <select
+            aria-label={t.thinkLabel}
+            value={thinkDepth}
+            onChange={(e) => setThinkDepth(e.target.value as "auto" | "0" | "4")}
+            className="hidden sm:block bg-[#171a22] border border-[#222633] hover:border-[#363d52] rounded-lg px-2 py-1 text-xs text-[#8e95a8] outline-none cursor-pointer"
+            title={t.thinkLabel}
           >
-            {t.langRu}
-          </button>
-          <button
-            onClick={() => setLang("en")}
-            className={`px-2 py-0.5 rounded transition ${
-              lang === "en" ? "bg-cyan-500/20 text-cyan-400 font-bold shadow-sm" : "text-zinc-500 hover:text-zinc-300"
-            }`}
-          >
-            {t.langEn}
-          </button>
-        </div>
+            <option value="auto" className="bg-[#111319]">
+              {t.thinkLabel}: {t.thinkAuto}
+            </option>
+            <option value="0" className="bg-[#111319]">
+              {t.thinkLabel}: {t.thinkDeep}
+            </option>
+            <option value="4" className="bg-[#111319]">
+              {t.thinkLabel}: {t.thinkFast}
+            </option>
+          </select>
+        ) : null}
+
+        <button
+          type="button"
+          onClick={handleRefresh}
+          disabled={isRefreshing}
+          className="p-1.5 text-[#8e95a8] hover:text-[#eceef4] hover:bg-[#171a22] rounded-lg transition-colors disabled:opacity-50"
+          title={t.btnRefreshModels}
+          aria-label={t.btnRefreshModels}
+        >
+          <RefreshCw size={14} className={isRefreshing ? "animate-spin text-[#4f8cff]" : ""} />
+        </button>
       </div>
     </header>
   );

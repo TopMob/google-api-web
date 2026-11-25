@@ -1,188 +1,171 @@
 "use client";
 
-import React, { useState } from "react";
-import { Bot, Key, Terminal, HelpCircle, Copy, Check } from "lucide-react";
+import React from "react";
+import Image from "next/image";
+import { MessageSquare, Plug, Activity } from "lucide-react";
 import { translations, Language } from "../utils/i18n";
 
-interface ApiKey {
-  id: string;
-  key: string;
-  project_id: string;
-  name: string;
-  active: boolean;
-  projects?: { name: string };
-  allowed_models?: string[];
-  daily_requests_limit?: number;
-  daily_tokens_limit?: number;
-  rate_limit_rpm?: number;
-  expires_at?: string;
-  created_at: string;
-}
+export type TabType = "chat" | "connect" | "logs";
 
 interface SidebarProps {
-  activeTab: "playground" | "keys" | "logs" | "faq";
-  setActiveTab: (tab: "playground" | "keys" | "logs" | "faq") => void;
-  gatewayUrl: string;
-  gatewayStatus: "online" | "offline" | "checking";
-  playgroundKey: string;
-  setPlaygroundKey: (key: string) => void;
-  apiKeys: ApiKey[];
+  activeTab: TabType;
+  setActiveTab: (tab: TabType) => void;
+  gatewayStatus: "online" | "warning" | "offline" | "checking";
+  cookieValid: boolean | null;
   lang: Language;
+  setLang: (lang: Language) => void;
 }
 
-export default function Sidebar({
-  activeTab,
-  setActiveTab,
-  gatewayUrl,
-  gatewayStatus,
-  playgroundKey,
-  setPlaygroundKey,
-  apiKeys,
-  lang
-}: SidebarProps) {
-  const [copiedGateway, setCopiedGateway] = useState(false);
-  const [copiedKey, setCopiedKey] = useState(false);
+export default function Sidebar({ activeTab, setActiveTab, gatewayStatus, cookieValid, lang, setLang }: SidebarProps) {
   const t = translations[lang];
 
-  const handleCopyGateway = () => {
-    const url = `${gatewayUrl.replace(/\/$/, "")}/v1`;
-    navigator.clipboard.writeText(url);
-    setCopiedGateway(true);
-    setTimeout(() => setCopiedGateway(false), 2000);
-  };
+  const tabs: Array<{
+    id: TabType;
+    label: string;
+    icon: React.ComponentType<{ size?: number; className?: string }>;
+  }> = [
+    { id: "chat", label: t.tabChat, icon: MessageSquare },
+    { id: "connect", label: t.tabConnect, icon: Plug },
+    { id: "logs", label: t.tabLogs, icon: Activity }
+  ];
 
-  const handleCopyKey = () => {
-    if (!playgroundKey) return;
-    navigator.clipboard.writeText(playgroundKey);
-    setCopiedKey(true);
-    setTimeout(() => setCopiedKey(false), 2000);
-  };
+  const statusColor =
+    gatewayStatus === "online"
+      ? "bg-emerald-500"
+      : gatewayStatus === "warning"
+        ? "bg-amber-400"
+        : gatewayStatus === "offline"
+          ? "bg-rose-500"
+          : "bg-zinc-400";
 
-  const getStatusLabel = () => {
-    if (gatewayStatus === "online") return t.statusOnline;
-    if (gatewayStatus === "offline") return t.statusOffline;
-    return t.statusChecking;
-  };
+  const statusText =
+    gatewayStatus === "online"
+      ? t.statusOnline
+      : gatewayStatus === "warning"
+        ? t.statusWarning
+        : gatewayStatus === "offline"
+          ? t.statusOffline
+          : t.statusChecking;
 
   return (
-    <aside className="w-72 border-r border-zinc-800 bg-[#090a0f] flex flex-col justify-between p-5 select-none shrink-0 font-sans">
-      <div className="space-y-7">
-        {/* Logo Section */}
-        <div className="flex items-center gap-3 px-1">
-          <div className="relative">
-            <img
-              src="/logo.png"
-              alt="Gemini Web2API Logo"
-              className="h-9 w-9 rounded-lg border border-cyan-500/30 shadow-[0_0_10px_rgba(6,182,212,0.15)] object-cover"
+    <>
+      {/* Desktop Sidebar */}
+      <aside className="hidden md:flex w-60 border-r border-[#222633] bg-[#0d0f14] flex-col justify-between p-4 select-none shrink-0">
+        <div className="space-y-6">
+          {/* Brand */}
+          <div className="flex items-center gap-3 px-1.5 pt-1">
+            <Image
+              src="/logo.webp"
+              alt="Gemini Gateway"
+              width={32}
+              height={32}
+              className="h-8 w-8 rounded-lg border border-[#222633] object-cover shrink-0"
             />
-            <div className="absolute -inset-0.5 rounded-lg bg-gradient-to-tr from-cyan-500 to-blue-500 opacity-20 blur-sm -z-10" />
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-[#eceef4] truncate">{t.brandTitle}</div>
+              <div className="text-xs text-[#8e95a8] truncate">{t.brandSubtitle}</div>
+            </div>
           </div>
-          <div>
-            <h1 className="text-xs font-bold tracking-tight text-white font-mono">
-              {t.brandName} <span className="text-cyan-400">{t.brandSubtitle}</span>
-            </h1>
-            <p className="text-[8px] text-zinc-500 font-mono tracking-widest uppercase">{t.portalTitle}</p>
-          </div>
+
+          {/* 3 Clean Tabs */}
+          <nav aria-label="Main navigation" className="space-y-1">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4f8cff] ${
+                    isActive
+                      ? "bg-[#4f8cff]/15 text-[#eceef4] border border-[#4f8cff]/30"
+                      : "text-[#8e95a8] hover:text-[#eceef4] hover:bg-[#171a22] border border-transparent"
+                  }`}
+                >
+                  <Icon size={16} className={isActive ? "text-[#4f8cff]" : "text-[#8e95a8]"} />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </nav>
         </div>
 
-        {/* Navigation Tabs */}
-        <div className="space-y-1">
-          <p className="text-[9px] font-mono tracking-widest text-zinc-500 uppercase px-2 mb-2">{t.workspace}</p>
-          {[
-            { id: "playground", label: t.tabPlayground, icon: Bot },
-            { id: "keys", label: t.tabKeys, icon: Key },
-            { id: "logs", label: t.tabLogs, icon: Terminal },
-            { id: "faq", label: t.tabFaq, icon: HelpCircle }
-          ].map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded text-xs font-mono transition-all duration-150 border text-left ${
-                  isActive
-                    ? "bg-zinc-900 border-zinc-800 text-cyan-400 font-medium"
-                    : "border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/30"
+        {/* Status & Language */}
+        <div className="space-y-2.5 pt-4 border-t border-[#222633] text-xs">
+          <div className="rounded-lg bg-[#111319] border border-[#222633] p-2.5 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[#8e95a8]">{t.gatewayLabel}</span>
+              <span className="flex items-center gap-1.5 font-medium text-[#eceef4]">
+                <span className={`h-2 w-2 rounded-full ${statusColor}`} />
+                {statusText}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[#8e95a8]">{t.cookieLabel}</span>
+              <span
+                className={`font-medium ${
+                  cookieValid === true
+                    ? "text-emerald-400"
+                    : cookieValid === false
+                      ? "text-amber-400"
+                      : "text-[#8e95a8]"
                 }`}
               >
-                <Icon size={14} className={isActive ? "text-cyan-400" : "text-zinc-400"} />
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Upstream Status Panel */}
-        <div className="space-y-2">
-          <p className="text-[9px] font-mono tracking-widest text-zinc-500 uppercase px-2">{t.connectionStatus}</p>
-          <div className="p-3 bg-[#0d0e12] border border-zinc-850 rounded font-mono">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] text-zinc-400">{t.localGateway}</span>
-              <div className="flex items-center gap-1.5">
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${
-                    gatewayStatus === "online"
-                      ? "bg-emerald-500 pulse-glow-green"
-                      : gatewayStatus === "offline"
-                        ? "bg-rose-500 pulse-glow-red"
-                        : "bg-amber-500 animate-pulse"
-                  }`}
-                />
-                <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-300">{getStatusLabel()}</span>
-              </div>
+                {cookieValid === true ? t.cookieOk : cookieValid === false ? t.cookieMissing : "—"}
+              </span>
             </div>
-            <div className="flex items-center justify-between mt-1 gap-2">
-              <div className="text-[9px] text-zinc-400 font-mono truncate select-all">
-                {gatewayUrl.replace(/\/$/, "")}/v1
-              </div>
+          </div>
+
+          <div className="flex items-center justify-between px-1">
+            <span className="text-[#8e95a8]">Язык / Lang</span>
+            <div className="inline-flex rounded-md bg-[#111319] border border-[#222633] p-0.5">
               <button
-                onClick={handleCopyGateway}
-                className="text-zinc-500 hover:text-cyan-400 p-0.5 transition"
-                title={t.copyGateway}
+                type="button"
+                onClick={() => setLang("ru")}
+                className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+                  lang === "ru" ? "bg-[#4f8cff]/20 text-[#eceef4]" : "text-[#8e95a8] hover:text-[#eceef4]"
+                }`}
               >
-                {copiedGateway ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+                RU
+              </button>
+              <button
+                type="button"
+                onClick={() => setLang("en")}
+                className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+                  lang === "en" ? "bg-[#4f8cff]/20 text-[#eceef4]" : "text-[#8e95a8] hover:text-[#eceef4]"
+                }`}
+              >
+                EN
               </button>
             </div>
           </div>
         </div>
-      </div>
+      </aside>
 
-      {/* Footer Playground Key with Copy */}
-      <div className="space-y-2 border-t border-zinc-900 pt-4">
-        <div className="flex items-center justify-between px-2">
-          <p className="text-[9px] font-mono tracking-widest text-zinc-500 uppercase">{t.activeBearerKey}</p>
-          <button
-            onClick={handleCopyKey}
-            disabled={!playgroundKey}
-            className="text-zinc-500 hover:text-amber-400 p-0.5 transition disabled:opacity-40"
-            title={t.copyKey}
-          >
-            {copiedKey ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
-          </button>
-        </div>
-        <div className="relative">
-          <select
-            value={playgroundKey}
-            onChange={(e) => setPlaygroundKey(e.target.value)}
-            className="w-full bg-[#0d0e12] border border-zinc-850 hover:border-zinc-700 rounded px-3 py-2 text-xs font-mono text-zinc-300 outline-none transition cursor-pointer appearance-none"
-          >
-            <option value="sk-personal-gw">sk-personal-gw (Admin)</option>
-            {apiKeys
-              .filter((k) => k.active)
-              .map((k) => (
-                <option key={k.id} value={k.key}>
-                  {k.name} ({k.key})
-                </option>
-              ))}
-          </select>
-          <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-500">
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-            </svg>
-          </div>
-        </div>
-      </div>
-    </aside>
+      {/* Mobile Bottom Navigation */}
+      <nav
+        aria-label="Mobile navigation"
+        className="md:hidden fixed bottom-0 inset-x-0 z-40 h-14 bg-[#0d0f14]/95 backdrop-blur border-t border-[#222633] flex items-center justify-around px-2"
+      >
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex flex-col items-center justify-center gap-0.5 px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                isActive ? "text-[#4f8cff]" : "text-[#8e95a8]"
+              }`}
+            >
+              <Icon size={17} />
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+    </>
   );
 }

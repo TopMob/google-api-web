@@ -1,6 +1,6 @@
 # Gemini Web2API Gateway & Control Panel (Local)
 
-Персональный OpenAI-compatible AI Gateway на базе Gemini Web для локального использования.
+Персональный OpenAI-compatible и Google Native AI Gateway на базе Gemini Web для локального использования.
 
 ---
 
@@ -8,25 +8,27 @@
 
 Проект работает полностью локально на вашем компьютере:
 
-1. **Панель управления (`apps/web`):** [http://localhost:3000](http://localhost:3000) (Next.js)
-2. **API-шлюз (`apps/gateway`):** [http://localhost:8081](http://localhost:8081) / [http://localhost:8081/v1](http://localhost:8081/v1) (Fastify)
-3. **Общие пакеты (`packages/shared`):** Контракты, типы и список поддерживаемых моделей.
+1. **Панель управления (`apps/web`):** [http://localhost:3000](http://localhost:3000) (Next.js 16 + React 19 + Tailwind CSS v4)
+   - **Чат:** диалог со стримингом, рендерингом Markdown и блоков `<think>`, прикреплением и вставкой изображений (`Ctrl+V`).
+   - **Подключение:** единые эндпоинты, пресеты клиентов (Cursor, OpenCode, VS Code, Gemini CLI, Zed, JetBrains, OpenClaw, cURL, Python, `.env`), управление проектами и API-ключами (RPM и дневные лимиты), проверка и сохранение cookies.
+   - **Логи:** метрики токенов (prompt/completion), успешность, средняя задержка и история запросов с фильтрацией.
+2. **API-шлюз (`apps/gateway`):** [http://localhost:8081](http://localhost:8081) / [http://localhost:8081/v1](http://localhost:8081/v1) (Fastify + TypeScript)
+3. **Общие контракты (`packages/shared`):** общие TypeScript-типы и конфигурация моделей.
 
 ---
 
 ## Запуск проекта
 
-Для одновременного запуска шлюза и панели управления достаточно одной команды:
-
 ```bash
 # 1. Установка зависимостей (при первом запуске)
 npm install
 
-# 2. Запуск локального dev-сервера
+# 2. Запуск локального dev-сервера (шлюз + веб-панель)
 npm run dev
 ```
 
-После этого откройте в браузере:
+После запуска откройте в браузере:
+
 - Панель управления: **http://localhost:3000**
 - Healthcheck шлюза: **http://localhost:8081/health**
 
@@ -34,34 +36,35 @@ npm run dev
 
 ## Доступные модели
 
-При вызове API вы можете использовать следующие идентификаторы моделей:
+| Модель (ID)                 | Описание                                                                 |
+| :-------------------------- | :----------------------------------------------------------------------- |
+| `gemini-3.8-flash`          | Быстрая модель общего назначения (по умолчанию).                         |
+| `gemini-3.8-flash-thinking` | Режим глубоких размышлений (Extended Thinking).                          |
+| `gemini-3.1-pro`            | Pro-модель повышенной сложности (требуется кука с расширенным доступом). |
+| `gemini-3.5-flash-lite`     | Облегченная быстрая модель.                                              |
+| `gemini-auto`               | Автоматический выбор модели.                                             |
 
-| Модель (ID)                      | Описание                                                                        |
-| :------------------------------- | :------------------------------------------------------------------------------ |
-| `gemini-3.5-flash`               | Быстрая модель общего назначения.                                               |
-| `gemini-3.5-flash-thinking`      | Режим глубоких размышлений (Deep Thinking), сверхдлинный вывод (~20k символов). |
-| `gemini-3.1-pro`                 | Pro-модель повышенной сложности (требуется кука с расширенным доступом).        |
-| `gemini-3.5-flash-thinking-lite` | Динамические размышления с адаптивной глубиной.                                 |
-| `gemini-flash-lite`              | Облегченная быстрая модель.                                                     |
-| `gemini-auto`                    | Автоматический выбор наиболее подходящей модели.                                |
+К любому идентификатору модели можно добавить суффикс `@think=N` (`0` — максимальная глубина, `4` — быстрый ответ).
 
 ---
 
 ## API Endpoints
 
-Все запросы направляются к локальному шлюзу: `http://localhost:8081/v1`
+### OpenAI-compatible (`/v1`)
 
-### 1. `GET /v1/models`
-Получение списка всех доступных моделей.
+- `GET /v1/models` — список доступных моделей.
+- `POST /v1/chat/completions` — генерация текста и изображений (`stream`, `stream_options.include_usage`, `messages` с `image_url`, `tools`, `response_format`).
+- `POST /v1/responses` — OpenAI Responses API (`input`, `input_image`, `tools`).
 
-### 2. `POST /v1/chat/completions`
-OpenAI-compatible эндпоинт генерации текста. Поддерживает стандартные параметры (`stream`, `messages`, `tools`).
+### Google Native (`/v1beta`) для Gemini CLI
 
-### 3. `POST /v1/responses`
-OpenAI-compatible Responses API.
+- `GET /v1beta/models` и `GET /v1beta/models/:model`
+- `POST /v1beta/models/{model}:generateContent`
+- `POST /v1beta/models/{model}:streamGenerateContent`
 
-### 4. `GET /health`
-Служебный эндпоинт для проверки статуса работы шлюза.
+### Служебные
+
+- `GET /health` — статус шлюза, состояние cookie и Circuit Breaker.
 
 ---
 
@@ -73,45 +76,35 @@ OpenAI-compatible Responses API.
 import OpenAI from "openai";
 
 const openai = new OpenAI({
-  apiKey: "sk-personal-gw", // Ваш API-ключ из панели управления
+  apiKey: "sk-personal-gw",
   baseURL: "http://localhost:8081/v1"
 });
 
 const response = await openai.chat.completions.create({
-  model: "gemini-3.5-flash",
+  model: "gemini-3.8-flash",
   messages: [{ role: "user", content: "Привет!" }]
 });
 console.log(response.choices[0].message.content);
 ```
 
-### Пример через cURL
+### Пример для Gemini CLI
 
 ```bash
-curl -X POST "http://localhost:8081/v1/chat/completions" \
-  -H "Authorization: Bearer sk-personal-gw" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gemini-3.5-flash",
-    "messages": [{"role": "user", "content": "Привет!"}],
-    "stream": false
-  }'
+export GEMINI_API_KEY="sk-personal-gw"
+export GOOGLE_GEMINI_BASE_URL="http://localhost:8081"
+gemini
 ```
 
 ---
 
 ## Выбор Google-аккаунта (`AUTH_USER`)
 
-Если в браузере выполнен вход в несколько аккаунтов Google, вы можете выбрать, какой аккаунт использовать:
-- В файле `config.json` укажите индекс аккаунта:
-  ```json
-  {
-    "auth_user": "1"
-  }
-  ```
-  (`"0"` или `""` — основной аккаунт, `"1"` — второй, `"2"` — третий).
+Если в браузере выполнен вход в несколько аккаунтов Google, укажите индекс аккаунта в `config.json` (или переменной `AUTH_USER`):
 
----
+```json
+{
+  "auth_user": "1"
+}
+```
 
-## TODO
-
-- [ ] Доделать подключение провайдеров (VS Code, Codex, Codex CLI, OpenClaw, Cursor, JetBrains, Zed)
+(`"0"` или `""` — основной аккаунт, `"1"` — второй, `"2"` — третий).
