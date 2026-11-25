@@ -187,6 +187,7 @@ export default function Home() {
     rate_limit_rpm: number | null;
     daily_requests_limit: number | null;
     daily_tokens_limit: number | null;
+    temporary_chats: boolean;
   }) => {
     const res = await fetch("/api/keys", {
       method: "POST",
@@ -209,10 +210,28 @@ export default function Home() {
     }
   };
 
+  const handleToggleTemporaryChats = async (id: string, current: boolean) => {
+    const res = await fetch("/api/keys", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, temporary_chats: !current })
+    });
+    if (res.ok) {
+      await fetchDbData();
+    }
+  };
+
   const handleDeleteKey = async (id: string) => {
     const res = await fetch(`/api/keys?id=${encodeURIComponent(id)}`, {
       method: "DELETE"
     });
+    if (res.ok) {
+      await fetchDbData();
+    }
+  };
+
+  const handleClearLogs = async () => {
+    const res = await fetch("/api/stats", { method: "DELETE" });
     if (res.ok) {
       await fetchDbData();
     }
@@ -425,6 +444,7 @@ export default function Home() {
             onCreateProject={handleCreateProject}
             onCreateKey={handleCreateKey}
             onToggleKey={handleToggleKey}
+            onToggleTemporaryChats={handleToggleTemporaryChats}
             onDeleteKey={handleDeleteKey}
             cookieStatus={cookieStatus}
             onSaveCookie={handleSaveCookie}
@@ -433,7 +453,13 @@ export default function Home() {
         ) : null}
 
         {activeTab === "logs" ? (
-          <LogsTab stats={stats} recentLogs={recentLogs} onRefresh={fetchDbData} lang={lang} />
+          <LogsTab
+            stats={stats}
+            recentLogs={recentLogs}
+            onRefresh={fetchDbData}
+            onClear={handleClearLogs}
+            lang={lang}
+          />
         ) : null}
       </main>
     </div>

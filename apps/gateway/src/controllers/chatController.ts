@@ -121,7 +121,15 @@ export async function chatCompletionController(request: FastifyRequest, reply: F
 
   try {
     const raw = await geminiCircuitBreaker.execute(() =>
-      geminiStreamGenerate(prompt, cfg.mode, cfg.think, customCookie, abortController.signal, fileRefs)
+      geminiStreamGenerate(
+        prompt,
+        cfg.mode,
+        cfg.think,
+        customCookie,
+        abortController.signal,
+        fileRefs,
+        auth.temporaryChats
+      )
     );
     const text = extractResponseText(raw);
     let cleanText = text;

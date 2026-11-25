@@ -188,7 +188,15 @@ export async function googleGenerateContentController(request: FastifyRequest, r
     const fileRefs = imageInputs.length > 0 ? await uploadAllImages(imageInputs, auth.customCookie) : undefined;
 
     const raw = await geminiCircuitBreaker.execute(() =>
-      geminiStreamGenerate(prompt, cfg.mode, cfg.think, auth.customCookie, abortController.signal, fileRefs)
+      geminiStreamGenerate(
+        prompt,
+        cfg.mode,
+        cfg.think,
+        auth.customCookie,
+        abortController.signal,
+        fileRefs,
+        auth.temporaryChats
+      )
     );
 
     const text = extractResponseText(raw);

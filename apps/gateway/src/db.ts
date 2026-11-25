@@ -19,6 +19,7 @@ export interface StoredApiKey {
   daily_requests_limit: number | null;
   daily_tokens_limit: number | null;
   rate_limit_rpm: number | null;
+  temporary_chats?: boolean;
   expires_at: string | null;
   created_at: string;
 }
@@ -58,6 +59,7 @@ const DEFAULT_API_KEY: StoredApiKey = {
   daily_requests_limit: null,
   daily_tokens_limit: null,
   rate_limit_rpm: null,
+  temporary_chats: true,
   expires_at: null,
   created_at: new Date().toISOString()
 };
@@ -183,6 +185,7 @@ export class LocalStore {
       const project = this.data.projects.find((p) => p.id === key.project_id);
       return {
         ...key,
+        temporary_chats: key.temporary_chats ?? true,
         projects: project ? { name: project.name } : undefined
       };
     });
@@ -199,6 +202,7 @@ export class LocalStore {
     daily_requests_limit?: number | null;
     daily_tokens_limit?: number | null;
     rate_limit_rpm?: number | null;
+    temporary_chats?: boolean;
     expires_at?: string | null;
   }): StoredApiKey {
     const key: StoredApiKey = {
@@ -211,6 +215,7 @@ export class LocalStore {
       daily_requests_limit: params.daily_requests_limit || null,
       daily_tokens_limit: params.daily_tokens_limit || null,
       rate_limit_rpm: params.rate_limit_rpm || null,
+      temporary_chats: params.temporary_chats ?? true,
       expires_at: params.expires_at || null,
       created_at: new Date().toISOString()
     };
@@ -225,6 +230,20 @@ export class LocalStore {
     key.active = active;
     this.scheduleSave();
     return key;
+  }
+
+  updateApiKey(id: string, updates: { active?: boolean; temporary_chats?: boolean }): StoredApiKey | null {
+    const key = this.data.api_keys.find((k) => k.id === id);
+    if (!key) return null;
+    if (typeof updates.active === "boolean") key.active = updates.active;
+    if (typeof updates.temporary_chats === "boolean") key.temporary_chats = updates.temporary_chats;
+    this.scheduleSave();
+    return key;
+  }
+
+  clearUsageLogs(): void {
+    this.data.usage_logs = [];
+    this.scheduleSave();
   }
 
   deleteApiKey(id: string): boolean {

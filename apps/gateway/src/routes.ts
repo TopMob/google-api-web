@@ -87,8 +87,16 @@ export function registerRoutes(server: FastifyInstance) {
 
   server.post("/api/keys", async (request: FastifyRequest, reply: FastifyReply) => {
     const body = request.body as any;
-    const { name, project_id, allowed_models, daily_requests_limit, daily_tokens_limit, rate_limit_rpm, expires_at } =
-      body || {};
+    const {
+      name,
+      project_id,
+      allowed_models,
+      daily_requests_limit,
+      daily_tokens_limit,
+      rate_limit_rpm,
+      temporary_chats,
+      expires_at
+    } = body || {};
     if (!name || !project_id) {
       return reply.status(400).send({ error: "Name and project_id are required" });
     }
@@ -99,17 +107,18 @@ export function registerRoutes(server: FastifyInstance) {
       daily_requests_limit: daily_requests_limit ? parseInt(daily_requests_limit, 10) : null,
       daily_tokens_limit: daily_tokens_limit ? parseInt(daily_tokens_limit, 10) : null,
       rate_limit_rpm: rate_limit_rpm ? parseInt(rate_limit_rpm, 10) : null,
+      temporary_chats: typeof temporary_chats === "boolean" ? temporary_chats : true,
       expires_at: expires_at || null
     });
   });
 
   server.patch("/api/keys", async (request: FastifyRequest, reply: FastifyReply) => {
     const body = request.body as any;
-    const { id, active } = body || {};
-    if (!id || typeof active !== "boolean") {
-      return reply.status(400).send({ error: "id and active state are required" });
+    const { id, active, temporary_chats } = body || {};
+    if (!id || (typeof active !== "boolean" && typeof temporary_chats !== "boolean")) {
+      return reply.status(400).send({ error: "id and at least one field (active, temporary_chats) are required" });
     }
-    const result = store.toggleApiKey(id, active);
+    const result = store.updateApiKey(id, { active, temporary_chats });
     if (!result) {
       return reply.status(404).send({ error: "API key not found" });
     }
@@ -145,6 +154,11 @@ export function registerRoutes(server: FastifyInstance) {
     const parsedLimit = query?.limit ? parseInt(query.limit, 10) : 50;
     const safeLimit = Number.isFinite(parsedLimit) ? Math.min(Math.max(1, parsedLimit), 500) : 50;
     return store.getStats(safeLimit);
+  });
+
+  server.delete("/api/stats", async () => {
+    store.clearUsageLogs();
+    return { cleared: true };
   });
 
   // Cookie Management

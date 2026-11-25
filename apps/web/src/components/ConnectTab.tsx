@@ -20,6 +20,7 @@ export interface ApiKeyItem {
   daily_requests_limit?: number | null;
   daily_tokens_limit?: number | null;
   rate_limit_rpm?: number | null;
+  temporary_chats?: boolean;
   expires_at?: string | null;
   created_at: string;
 }
@@ -47,8 +48,10 @@ interface ConnectTabProps {
     rate_limit_rpm: number | null;
     daily_requests_limit: number | null;
     daily_tokens_limit: number | null;
+    temporary_chats: boolean;
   }) => Promise<void>;
   onToggleKey: (id: string, active: boolean) => Promise<void>;
+  onToggleTemporaryChats: (id: string, current: boolean) => Promise<void>;
   onDeleteKey: (id: string) => Promise<void>;
   cookieStatus: CookieStatusData | null;
   onSaveCookie: (cookieStr: string) => Promise<{ success: boolean; message: string }>;
@@ -102,6 +105,7 @@ export default function ConnectTab({
   onCreateProject,
   onCreateKey,
   onToggleKey,
+  onToggleTemporaryChats,
   onDeleteKey,
   cookieStatus,
   onSaveCookie,
@@ -124,6 +128,7 @@ export default function ConnectTab({
   const [rpmLimit, setRpmLimit] = useState("");
   const [dailyReqLimit, setDailyReqLimit] = useState("");
   const [dailyTokLimit, setDailyTokLimit] = useState("");
+  const [temporaryChats, setTemporaryChats] = useState(true);
   const [newProjectName, setNewProjectName] = useState("");
   const [showProjectInput, setShowProjectInput] = useState(false);
 
@@ -264,13 +269,15 @@ export default function ConnectTab({
       expires_at: expiresAt,
       rate_limit_rpm: rpmLimit ? parseInt(rpmLimit, 10) : null,
       daily_requests_limit: dailyReqLimit ? parseInt(dailyReqLimit, 10) : null,
-      daily_tokens_limit: dailyTokLimit ? parseInt(dailyTokLimit, 10) : null
+      daily_tokens_limit: dailyTokLimit ? parseInt(dailyTokLimit, 10) : null,
+      temporary_chats: temporaryChats
     });
 
     setNewKeyName("");
     setRpmLimit("");
     setDailyReqLimit("");
     setDailyTokLimit("");
+    setTemporaryChats(true);
     setExpiration("never");
     setShowKeyForm(false);
   };
@@ -560,20 +567,32 @@ export default function ConnectTab({
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setShowKeyForm(false)}
-                  className="px-3 py-1.5 rounded-md border border-[#222633] text-xs text-[#8e95a8] hover:text-[#eceef4]"
-                >
-                  {t.btnCancel}
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 rounded-md bg-[#4f8cff] hover:bg-[#3f7cf0] text-xs font-medium text-white"
-                >
-                  {t.btnCreateKey}
-                </button>
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                <label className="inline-flex items-center gap-2 text-xs text-[#c5cbe0] cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={temporaryChats}
+                    onChange={(e) => setTemporaryChats(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-[#222633] bg-[#171a22] accent-[#4f8cff]"
+                  />
+                  <span>{t.temporaryChatsLabel}</span>
+                </label>
+
+                <div className="flex items-center gap-2 ml-auto">
+                  <button
+                    type="button"
+                    onClick={() => setShowKeyForm(false)}
+                    className="px-3 py-1.5 rounded-md border border-[#222633] text-xs text-[#8e95a8] hover:text-[#eceef4]"
+                  >
+                    {t.btnCancel}
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-1.5 rounded-md bg-[#4f8cff] hover:bg-[#3f7cf0] text-xs font-medium text-white"
+                  >
+                    {t.btnCreateKey}
+                  </button>
+                </div>
               </div>
             </form>
           ) : null}
@@ -634,6 +653,18 @@ export default function ConnectTab({
                           </span>
                         </td>
                         <td className="py-2.5 pl-3 text-right space-x-2 whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => onToggleTemporaryChats(k.id, k.temporary_chats ?? true)}
+                            className={`text-[11px] px-2 py-1 rounded border transition-colors ${
+                              (k.temporary_chats ?? true)
+                                ? "border-[#4f8cff]/30 bg-[#4f8cff]/10 text-[#9ec2ff]"
+                                : "border-[#222633] text-[#8e95a8] hover:text-[#eceef4]"
+                            }`}
+                            title={t.temporaryChatsLabel}
+                          >
+                            {(k.temporary_chats ?? true) ? t.tempChatBadgeOn : t.tempChatBadgeOff}
+                          </button>
                           <button
                             type="button"
                             disabled={isExpired}

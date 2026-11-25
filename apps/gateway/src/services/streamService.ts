@@ -26,7 +26,14 @@ export async function handleChatStream(
   let responseText = "";
 
   try {
-    const { url, headers, body } = await buildGeminiRequest(prompt, cfg.mode, cfg.think, customCookie, fileRefs);
+    const { url, headers, body } = await buildGeminiRequest(
+      prompt,
+      cfg.mode,
+      cfg.think,
+      customCookie,
+      fileRefs,
+      auth.temporaryChats
+    );
 
     const response = await geminiCircuitBreaker.execute(async () => {
       return await fetchWithRetry(url, {
@@ -211,7 +218,14 @@ export async function handleChatStreamWithTools(
   let toolSuspended = false;
 
   try {
-    const { url, headers, body } = await buildGeminiRequest(prompt, cfg.mode, cfg.think, customCookie, fileRefs);
+    const { url, headers, body } = await buildGeminiRequest(
+      prompt,
+      cfg.mode,
+      cfg.think,
+      customCookie,
+      fileRefs,
+      auth.temporaryChats
+    );
     const response = await geminiCircuitBreaker.execute(async () => {
       return await fetchWithRetry(url, {
         method: "POST",

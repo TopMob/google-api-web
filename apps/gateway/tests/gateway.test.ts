@@ -14,6 +14,7 @@ import {
   parseGoogleModelAction
 } from "../src/controllers/googleNativeController.js";
 import { resolveModelConfig, guessMode, getModels } from "../src/utils/models.js";
+import { buildGeminiRequest } from "../src/services/gemini.js";
 
 describe("Multimodal SSRF & Input Validation", () => {
   it("should detect private, loopback, and link-local IPv4/IPv6 addresses", () => {
@@ -318,5 +319,50 @@ describe("Gemini 4 Elemental Models (Carbon, Argon, Neon, Hydrogen)", () => {
     const hydrogenDeep = resolveModelConfig("gemini-4-hydrogen@think=0");
     expect(hydrogenDeep.cleanModelName).toBe("gemini-4-hydrogen");
     expect(hydrogenDeep.config.think).toBe(0);
+  });
+});
+
+describe("Temporary Chats & Clear Usage Logs", () => {
+  it("should default temporary_chats=true in LocalStore keys and clear logs on clearUsageLogs()", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gw-clear-test-"));
+    const testStore = new LocalStore(path.join(tmpDir, "store.json"));
+    try {
+      const proj = testStore.createProject("TempProj");
+      const key = testStore.createApiKey({ name: "TempKey", project_id: proj.id });
+      expect(key.temporary_chats).toBe(true);
+
+      testStore.addUsageLog({
+        project_id: proj.id,
+        api_key_id: key.id,
+        model: "gemini-4-hydrogen",
+        prompt_tokens: 10,
+        completion_tokens: 20,
+        total_tokens: 30,
+        duration_ms: 100,
+        status_code: 200
+      });
+      expect(testStore.getStats().totalRequests).toBe(1);
+
+      testStore.clearUsageLogs();
+      expect(testStore.getStats().totalRequests).toBe(0);
+      expect(testStore.getStats().recentLogs).toHaveLength(0);
+    } finally {
+      testStore.flush();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("should set temporary chat persistence flags [41]=[1] and [45]=1 by default in Gemini payload", async () => {
+    const reqTemp = await buildGeminiRequest("hi", 1, 4, "__Secure-1PSID=abc; SAPISID=xyz", undefined, true);
+    const paramsTemp = new URLSearchParams(reqTemp.body);
+    const innerTemp = JSON.parse(JSON.parse(paramsTemp.get("f.req")!)[1]);
+    expect(innerTemp[41]).toEqual([1]);
+    expect(innerTemp[45]).toBe(1);
+
+    const reqPersist = await buildGeminiRequest("hi", 1, 4, "__Secure-1PSID=abc; SAPISID=xyz", undefined, false);
+    const paramsPersist = new URLSearchParams(reqPersist.body);
+    const innerPersist = JSON.parse(JSON.parse(paramsPersist.get("f.req")!)[1]);
+    expect(innerPersist[41]).toEqual([2]);
+    expect(innerPersist[45]).toBeNull();
   });
 });

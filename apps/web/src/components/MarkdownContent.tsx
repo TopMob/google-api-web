@@ -90,6 +90,47 @@ function renderInlineFormatting(text: string): React.ReactNode[] {
   });
 }
 
+function highlightCodeLine(line: string): React.ReactNode[] {
+  const tokenRegex =
+    /(\/\/.*$|#.*$|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\b(?:const|let|var|function|return|import|export|from|default|async|await|if|else|for|of|in|while|try|catch|throw|new|class|extends|interface|type|enum|def|elif|pass|with|as|raise|yield|lambda|SELECT|FROM|WHERE|INSERT|UPDATE|DELETE|JOIN|true|false|null|undefined|None|True|False)\b|\b\d+(?:\.\d+)?\b)/g;
+
+  const nodes: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let keyIdx = 0;
+
+  while ((match = tokenRegex.exec(line)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(<React.Fragment key={keyIdx++}>{line.slice(lastIndex, match.index)}</React.Fragment>);
+    }
+
+    const tok = match[0];
+    let cls = "text-[#d8dce8]";
+    if (tok.startsWith("//") || tok.startsWith("#")) {
+      cls = "text-[#6b7394] italic";
+    } else if (tok.startsWith('"') || tok.startsWith("'") || tok.startsWith("`")) {
+      cls = "text-[#7ee787]";
+    } else if (/^\d/.test(tok)) {
+      cls = "text-[#f78c6c]";
+    } else {
+      cls = "text-[#c792ea]";
+    }
+
+    nodes.push(
+      <span key={keyIdx++} className={cls}>
+        {tok}
+      </span>
+    );
+    lastIndex = match.index + tok.length;
+  }
+
+  if (lastIndex < line.length) {
+    nodes.push(<React.Fragment key={keyIdx++}>{line.slice(lastIndex)}</React.Fragment>);
+  }
+
+  return nodes.length > 0 ? nodes : [<React.Fragment key={0}>{line}</React.Fragment>];
+}
+
 function CodeBlock({
   code,
   lang,
@@ -109,6 +150,8 @@ function CodeBlock({
     setTimeout(() => setCopied(false), 1800);
   };
 
+  const lines = code.split("\n");
+
   return (
     <div className="my-2.5 rounded-lg border border-[#222633] bg-[#0b0d12] overflow-hidden">
       <div className="flex items-center justify-between px-3 py-1.5 bg-[#111319] border-b border-[#222633] text-[11px] text-[#8e95a8] font-mono">
@@ -123,7 +166,14 @@ function CodeBlock({
         </button>
       </div>
       <pre className="p-3.5 overflow-x-auto text-[12.5px] leading-relaxed font-mono text-[#d8dce8] custom-scrollbar">
-        <code>{code}</code>
+        <code>
+          {lines.map((line, i) => (
+            <React.Fragment key={i}>
+              {highlightCodeLine(line)}
+              {i < lines.length - 1 ? "\n" : null}
+            </React.Fragment>
+          ))}
+        </code>
       </pre>
     </div>
   );

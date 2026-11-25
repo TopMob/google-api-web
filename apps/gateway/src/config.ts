@@ -38,6 +38,7 @@ const configSchema = z.object({
   LOG_LEVEL: z.string().default("info"),
   DEFAULT_RATE_LIMIT_RPM: z.coerce.number().int().nonnegative().default(15),
   ADMIN_API_KEY: z.string().default("sk-personal-gw"),
+  TEMPORARY_CHATS: z.preprocess((v) => (v === "false" || v === false ? false : true), z.boolean().default(true)),
   GEMINI_COOKIE: z.string().optional().default(""),
   COOKIE_FILE: z.string().nullable().optional(),
   API_KEYS: z.array(z.string()).optional()
@@ -53,6 +54,7 @@ const mergedConfig = {
   LOG_LEVEL: process.env.LOG_LEVEL,
   DEFAULT_RATE_LIMIT_RPM: process.env.DEFAULT_RATE_LIMIT_RPM,
   ADMIN_API_KEY: process.env.ADMIN_API_KEY,
+  TEMPORARY_CHATS: fileConfig.temporary_chats ?? process.env.TEMPORARY_CHATS,
   GEMINI_COOKIE: process.env.GEMINI_COOKIE,
   COOKIE_FILE: fileConfig.cookie_file,
   API_KEYS: fileConfig.api_keys
@@ -76,6 +78,7 @@ export const RETRY_DELAY_SEC = config.RETRY_DELAY_SEC;
 export const LOG_LEVEL = config.LOG_LEVEL;
 export const DEFAULT_RATE_LIMIT_RPM = config.DEFAULT_RATE_LIMIT_RPM;
 export const ADMIN_API_KEY = config.ADMIN_API_KEY;
+export const TEMPORARY_CHATS = config.TEMPORARY_CHATS;
 export const GEMINI_COOKIE = config.GEMINI_COOKIE;
 export const COOKIE_FILE = config.COOKIE_FILE;
 export const API_KEYS = config.API_KEYS;

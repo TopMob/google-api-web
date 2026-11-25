@@ -3,7 +3,7 @@ import crypto from "crypto";
 import { store } from "../db.js";
 import { parseAndValidateCookie, isCookieValidCached } from "../utils/cookie.js";
 import { checkRateLimit } from "../utils/rateLimit.js";
-import { config, DEFAULT_RATE_LIMIT_RPM, ADMIN_API_KEY, API_KEYS } from "../config.js";
+import { config, DEFAULT_RATE_LIMIT_RPM, ADMIN_API_KEY, API_KEYS, TEMPORARY_CHATS } from "../config.js";
 import { logger } from "../logger.js";
 
 export interface AuthResult {
@@ -11,6 +11,7 @@ export interface AuthResult {
   projectId?: string;
   apiKeyId?: string;
   customCookie?: string;
+  temporaryChats?: boolean;
   error?: string;
   statusCode?: number;
 }
@@ -121,7 +122,8 @@ export async function verifyApiKey(request: FastifyRequest, model: string): Prom
     return {
       valid: true,
       projectId: "00000000-0000-0000-0000-000000000000",
-      apiKeyId: "00000000-0000-0000-0000-000000000001"
+      apiKeyId: "00000000-0000-0000-0000-000000000001",
+      temporaryChats: TEMPORARY_CHATS
     };
   }
 
@@ -171,7 +173,8 @@ export async function verifyApiKey(request: FastifyRequest, model: string): Prom
   return {
     valid: true,
     projectId: storedKey.project_id,
-    apiKeyId: storedKey.id
+    apiKeyId: storedKey.id,
+    temporaryChats: storedKey.temporary_chats ?? TEMPORARY_CHATS
   };
 }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { Activity, Clock, RefreshCw, Search } from "lucide-react";
+import { Activity, Clock, RefreshCw, Search, Trash2 } from "lucide-react";
 import { translations, Language } from "../utils/i18n";
 
 export interface UsageLogItem {
@@ -30,14 +30,16 @@ interface LogsTabProps {
   stats: StatsSummary;
   recentLogs: UsageLogItem[];
   onRefresh: () => Promise<void>;
+  onClear: () => Promise<void>;
   lang: Language;
 }
 
-export default function LogsTab({ stats, recentLogs, onRefresh, lang }: LogsTabProps) {
+export default function LogsTab({ stats, recentLogs, onRefresh, onClear, lang }: LogsTabProps) {
   const t = translations[lang];
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "ok" | "error">("all");
   const [refreshing, setRefreshing] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   const filteredLogs = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -63,6 +65,15 @@ export default function LogsTab({ stats, recentLogs, onRefresh, lang }: LogsTabP
     }
   };
 
+  const handleClear = async () => {
+    setClearing(true);
+    try {
+      await onClear();
+    } finally {
+      setClearing(false);
+    }
+  };
+
   return (
     <div className="flex-1 overflow-y-auto px-4 md:px-6 py-6 pb-20 md:pb-8 bg-[#0a0b0e] custom-scrollbar">
       <div className="max-w-5xl mx-auto space-y-6">
@@ -72,15 +83,26 @@ export default function LogsTab({ stats, recentLogs, onRefresh, lang }: LogsTabP
             <h3 className="text-sm font-semibold text-[#eceef4]">{t.logsTitle}</h3>
             <p className="text-xs text-[#8e95a8] mt-0.5">{t.logsSubtitle}</p>
           </div>
-          <button
-            type="button"
-            onClick={handleRefresh}
-            disabled={refreshing}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#111319] hover:bg-[#171a22] border border-[#222633] text-xs font-medium text-[#eceef4] transition-colors disabled:opacity-50"
-          >
-            <RefreshCw size={13} className={refreshing ? "animate-spin text-[#4f8cff]" : ""} />
-            <span>{t.btnRefreshLogs}</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleClear}
+              disabled={clearing || stats.totalRequests === 0}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#111319] hover:bg-rose-500/15 border border-[#222633] hover:border-rose-500/30 text-xs font-medium text-[#8e95a8] hover:text-rose-300 transition-colors disabled:opacity-40"
+            >
+              <Trash2 size={13} />
+              <span>{t.btnClearLogs}</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#111319] hover:bg-[#171a22] border border-[#222633] text-xs font-medium text-[#eceef4] transition-colors disabled:opacity-50"
+            >
+              <RefreshCw size={13} className={refreshing ? "animate-spin text-[#4f8cff]" : ""} />
+              <span>{t.btnRefreshLogs}</span>
+            </button>
+          </div>
         </div>
 
         {/* 4 Summary Metrics */}

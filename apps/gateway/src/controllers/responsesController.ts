@@ -130,7 +130,15 @@ export async function responsesApiController(request: FastifyRequest, reply: Fas
     const fileRefs = imageInputs.length > 0 ? await uploadAllImages(imageInputs, customCookie) : undefined;
 
     const raw = await geminiCircuitBreaker.execute(() =>
-      geminiStreamGenerate(prompt, cfg.mode, cfg.think, customCookie, abortController.signal, fileRefs)
+      geminiStreamGenerate(
+        prompt,
+        cfg.mode,
+        cfg.think,
+        customCookie,
+        abortController.signal,
+        fileRefs,
+        auth.temporaryChats
+      )
     );
     const text = extractResponseText(raw);
     let cleanText = text;

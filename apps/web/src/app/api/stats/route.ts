@@ -15,3 +15,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
+
+export async function DELETE() {
+  try {
+    const res = await fetch(`${gatewayUrl()}/api/stats`, {
+      method: "DELETE",
+      signal: AbortSignal.timeout(5000)
+    });
+    if (!res.ok) throw new Error(`Gateway error: ${res.status}`);
+    return NextResponse.json(await res.json());
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}

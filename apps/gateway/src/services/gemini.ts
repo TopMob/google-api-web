@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { config, GEMINI_BL, AUTH_USER, RETRY_ATTEMPTS, RETRY_DELAY_SEC } from "../config.js";
+import { config, GEMINI_BL, AUTH_USER, RETRY_ATTEMPTS, RETRY_DELAY_SEC, TEMPORARY_CHATS } from "../config.js";
 import { loadCookie, makeSapisidHash, parseRawCookieString, getGeminiSessionInfo } from "../utils/cookie.js";
 import { fetchWithRetry } from "../utils/fetchWithRetry.js";
 
@@ -37,18 +37,24 @@ class GeminiPayloadBuilder {
     return this.set(79, id);
   }
 
-  setStaticFlags() {
-    return this.set(6, [0])
+  setStaticFlags(temporaryChats = TEMPORARY_CHATS) {
+    this.set(6, [0])
       .set(7, 1)
       .set(10, 1)
       .set(11, 0)
       .set(18, 0)
       .set(27, 1)
       .set(30, [4])
-      .set(41, [2])
       .set(53, 0)
       .set(61, [])
       .set(68, 1);
+
+    if (temporaryChats) {
+      this.set(41, [1]).set(45, 1);
+    } else {
+      this.set(41, [2]);
+    }
+    return this;
   }
 
   build() {
@@ -64,7 +70,8 @@ export async function buildGeminiRequest(
   modelId: number,
   thinkMode: number,
   customCookie?: string,
-  fileRefs?: string[]
+  fileRefs?: string[],
+  temporaryChats = TEMPORARY_CHATS
 ): Promise<{ url: string; headers: Record<string, string>; body: string }> {
   let cookieStr = "";
   let sapisid: string | null = null;
@@ -91,7 +98,7 @@ export async function buildGeminiRequest(
     .setThinkMode(thinkMode)
     .setSessionId(crypto.randomUUID())
     .setModelId(modelId)
-    .setStaticFlags()
+    .setStaticFlags(temporaryChats)
     .build();
 
   const bodyParams = new URLSearchParams();
@@ -133,9 +140,17 @@ export async function geminiStreamGenerate(
   thinkMode: number,
   customCookie?: string,
   signal?: AbortSignal,
-  fileRefs?: string[]
+  fileRefs?: string[],
+  temporaryChats = TEMPORARY_CHATS
 ): Promise<string> {
-  const { url, headers, body } = await buildGeminiRequest(prompt, modelId, thinkMode, customCookie, fileRefs);
+  const { url, headers, body } = await buildGeminiRequest(
+    prompt,
+    modelId,
+    thinkMode,
+    customCookie,
+    fileRefs,
+    temporaryChats
+  );
 
   const response = await fetchWithRetry(
     url,
