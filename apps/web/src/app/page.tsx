@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback, useSyncExternalStore } from "
 import Sidebar, { TabType } from "../components/Sidebar";
 import Header from "../components/Header";
 import ChatTab, { ChatMessage } from "../components/ChatTab";
-import ConnectTab, { ApiKeyItem, CookieStatusData, ProjectItem } from "../components/ConnectTab";
+import ConnectTab, { ApiKeyItem, CookieStatusData, ProjectItem, GoogleAccountItem } from "../components/ConnectTab";
 import LogsTab, { StatsSummary, UsageLogItem } from "../components/LogsTab";
 import { Language } from "../utils/i18n";
 
@@ -49,6 +49,9 @@ export default function Home() {
   const [apiKeys, setApiKeys] = useState<ApiKeyItem[]>([]);
   const [activeKey, setActiveKey] = useState<string>("sk-personal-gw");
   const [cookieStatus, setCookieStatus] = useState<CookieStatusData | null>(null);
+  const [accounts, setAccounts] = useState<GoogleAccountItem[]>([]);
+  const [activeAuthUser, setActiveAuthUser] = useState<string>("0");
+  const [isLoadingAccounts, setIsLoadingAccounts] = useState(false);
   const [recentLogs, setRecentLogs] = useState<UsageLogItem[]>([]);
   const [stats, setStats] = useState<StatsSummary>({
     totalRequests: 0,
@@ -148,6 +151,45 @@ export default function Home() {
     } catch {}
   }, []);
 
+  const fetchAccounts = useCallback(async (forceRefresh = false) => {
+    setIsLoadingAccounts(true);
+    try {
+      const url = forceRefresh ? "/api/accounts?refresh=true" : "/api/accounts";
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = (await res.json()) as {
+          activeAuthUser?: string;
+          accounts?: GoogleAccountItem[];
+        };
+        if (typeof data.activeAuthUser === "string") {
+          setActiveAuthUser(data.activeAuthUser);
+        }
+        if (Array.isArray(data.accounts)) {
+          setAccounts(data.accounts);
+        }
+      }
+    } catch {
+      // ignore transient network errors
+    } finally {
+      setIsLoadingAccounts(false);
+    }
+  }, []);
+
+  const handleSelectAccount = useCallback(
+    async (authUser: string) => {
+      const res = await fetch("/api/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ authUser })
+      });
+      if (res.ok) {
+        setActiveAuthUser(authUser);
+        await Promise.all([checkHealth(), fetchModels(), fetchCookieStatus()]);
+      }
+    },
+    [checkHealth, fetchModels, fetchCookieStatus]
+  );
+
   const fetchDbData = useCallback(async () => {
     try {
       const [projRes, keysRes, statsRes] = await Promise.all([
@@ -185,7 +227,7 @@ export default function Home() {
 
   useEffect(() => {
     const initialTimer = setTimeout(() => {
-      void Promise.all([checkHealth(), fetchModels(), fetchDbData(), fetchCookieStatus()]);
+      void Promise.all([checkHealth(), fetchModels(), fetchDbData(), fetchCookieStatus(), fetchAccounts()]);
     }, 0);
 
     const interval = setInterval(() => {
@@ -197,7 +239,7 @@ export default function Home() {
       clearTimeout(initialTimer);
       clearInterval(interval);
     };
-  }, [checkHealth, fetchModels, fetchDbData, fetchCookieStatus]);
+  }, [checkHealth, fetchModels, fetchDbData, fetchCookieStatus, fetchAccounts]);
 
   const handleCreateProject = async (name: string) => {
     const res = await fetch("/api/projects", {
@@ -275,7 +317,7 @@ export default function Home() {
         body: JSON.stringify({ cookie: cookieStr })
       });
       const data = await res.json();
-      await Promise.all([fetchCookieStatus(), checkHealth(), fetchModels()]);
+      await Promise.all([fetchCookieStatus(), checkHealth(), fetchModels(), fetchAccounts(true)]);
       return {
         success: Boolean(res.ok && data.success),
         message: data.message || (res.ok ? "Saved" : "Validation failed")
@@ -481,6 +523,11 @@ export default function Home() {
             onDeleteKey={handleDeleteKey}
             cookieStatus={cookieStatus}
             onSaveCookie={handleSaveCookie}
+            accounts={accounts}
+            activeAuthUser={activeAuthUser}
+            isLoadingAccounts={isLoadingAccounts}
+            onRefreshAccounts={() => fetchAccounts(true)}
+            onSelectAccount={handleSelectAccount}
             lang={lang}
           />
         ) : null}

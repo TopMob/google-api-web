@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { getModels } from "./utils/models.js";
-import { isCookieValidCached, loadCookie } from "./utils/cookie.js";
+import { getModels, refreshModels } from "./utils/models.js";
+import { isCookieValidCached, loadCookie, discoverGoogleAccounts, clearCookieDiscoveryCache } from "./utils/cookie.js";
 import { chatCompletionController } from "./controllers/chatController.js";
 import { responsesApiController } from "./controllers/responsesController.js";
 import {
@@ -168,10 +168,36 @@ export function registerRoutes(server: FastifyInstance) {
     if (!cookieStr || typeof cookieStr !== "string") {
       return reply.status(400).send({ error: "Cookie string is required" });
     }
-    return await saveCookieFile(cookieStr.trim());
+    const saved = await saveCookieFile(cookieStr.trim());
+    clearCookieDiscoveryCache();
+    return saved;
   });
 
   server.get("/api/cookies/status", async () => {
     return await getCookieStatus();
+  });
+
+  // Google Multi-Account Discovery & Switching
+  server.get("/api/accounts", async (request: FastifyRequest) => {
+    const query = request.query as { refresh?: string };
+    const forceRefresh = query?.refresh === "true" || query?.refresh === "1";
+    const loaded = loadCookie();
+    const activeAuthUser = store.getAuthUser();
+    if (!loaded.cookieStr) {
+      return { activeAuthUser, accounts: [] };
+    }
+    const accounts = await discoverGoogleAccounts(loaded.cookieStr, loaded.sapisid, forceRefresh);
+    return { activeAuthUser, accounts };
+  });
+
+  server.post("/api/accounts/select", async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as { authUser?: unknown } | undefined;
+    const rawAuthUser = body?.authUser;
+    if (typeof rawAuthUser !== "string" || !/^[0-9]$/.test(rawAuthUser.trim())) {
+      return reply.status(400).send({ error: "authUser must be a single digit index (0-9)" });
+    }
+    const activeAuthUser = store.setAuthUser(rawAuthUser.trim());
+    await refreshModels();
+    return { ok: true, activeAuthUser };
   });
 }

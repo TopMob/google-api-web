@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { logger } from "./logger.js";
+import { AUTH_USER } from "./config.js";
 
 export interface StoredProject {
   id: string;
@@ -41,6 +42,7 @@ interface StoreData {
   projects: StoredProject[];
   api_keys: StoredApiKey[];
   usage_logs: StoredUsageLog[];
+  auth_user?: string;
 }
 
 const DEFAULT_PROJECT: StoredProject = {
@@ -124,7 +126,8 @@ export class LocalStore {
         return {
           projects: parsed.projects || [DEFAULT_PROJECT],
           api_keys: parsed.api_keys || [DEFAULT_API_KEY],
-          usage_logs: parsed.usage_logs || []
+          usage_logs: parsed.usage_logs || [],
+          auth_user: typeof parsed.auth_user === "string" ? parsed.auth_user : undefined
         };
       }
     } catch (e) {
@@ -244,6 +247,17 @@ export class LocalStore {
   clearUsageLogs(): void {
     this.data.usage_logs = [];
     this.scheduleSave();
+  }
+
+  getAuthUser(): string {
+    return this.data.auth_user || AUTH_USER || "0";
+  }
+
+  setAuthUser(idx: string): string {
+    const normalized = String(idx).trim();
+    this.data.auth_user = normalized;
+    this.scheduleSave();
+    return normalized;
   }
 
   deleteApiKey(id: string): boolean {

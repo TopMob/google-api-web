@@ -137,7 +137,15 @@ export const translations = {
     thTokens: "Токены (вход / выход)",
     thLatency: "Задержка",
     noLogsYet: "Запросов пока не было.",
-    noMatchingLogs: "Нет записей, подходящих под фильтр."
+    noMatchingLogs: "Нет записей, подходящих под фильтр.",
+
+    // Multi-Account Switcher
+    accountsTitle: "Google-аккаунты",
+    accountsSubtitle: "Переключайте активный аккаунт из вашей текущей cookie-сессии без перезапуска.",
+    btnRefreshAccounts: "Обновить аккаунты",
+    accountsEmpty: "Доступные аккаунты не найдены. Проверьте cookie выше.",
+    accountActiveBadge: "Активен",
+    accountNoEmail: "Аккаунт"
   },
   en: {
     // Brand & Nav
@@ -275,6 +283,14 @@ export const translations = {
     thTokens: "Tokens (in / out)",
     thLatency: "Latency",
     noLogsYet: "No requests recorded yet.",
-    noMatchingLogs: "No log entries match your filters."
+    noMatchingLogs: "No log entries match your filters.",
+
+    // Multi-Account Switcher
+    accountsTitle: "Google Accounts",
+    accountsSubtitle: "Switch the active Google account from your current cookie session without restarting.",
+    btnRefreshAccounts: "Refresh accounts",
+    accountsEmpty: "No signed-in accounts found. Check your cookies above.",
+    accountActiveBadge: "Active",
+    accountNoEmail: "Account"
   }
 } as const;

@@ -7,15 +7,13 @@
 ## Архитектура
 
 - `apps/web` — локальная панель управления;
-- `apps/gateway` — Fastify-шлюз;
-- `packages/shared` — общие типы и контракты.
+- `apps/gateway` — Fastify-шлюз.
 
 1. **Панель управления (`apps/web`):** [http://localhost:3000](http://localhost:3000) (Next.js 16 + React 19 + Tailwind CSS v4)
    - **Чат:** диалог со стримингом, рендерингом Markdown и блоков `<think>`, прикреплением и вставкой изображений (`Ctrl+V`).
    - **Подключение:** единые эндпоинты, пресеты клиентов (Cursor, OpenCode, VS Code, Gemini CLI, Zed, JetBrains, OpenClaw, cURL, Python, `.env`), управление проектами и API-ключами (RPM и дневные лимиты), проверка и сохранение cookies.
    - **Логи:** метрики токенов (prompt/completion), успешность, средняя задержка и история запросов с фильтрацией.
 2. **API-шлюз (`apps/gateway`):** [http://localhost:8081](http://localhost:8081) / [http://localhost:8081/v1](http://localhost:8081/v1) (Fastify + TypeScript)
-3. **Общие контракты (`packages/shared`):** общие TypeScript-типы и конфигурация моделей.
 
 - панель: `http://localhost:3000`;
 - API: `http://localhost:8081`;

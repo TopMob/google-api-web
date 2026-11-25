@@ -15,6 +15,7 @@ import {
 } from "../src/controllers/googleNativeController.js";
 import { resolveModelConfig, guessMode, getModels } from "../src/utils/models.js";
 import { buildGeminiRequest } from "../src/services/gemini.js";
+import { discoverGoogleAccounts } from "../src/utils/cookie.js";
 
 describe("Multimodal SSRF & Input Validation", () => {
   it("should detect private, loopback, and link-local IPv4/IPv6 addresses", () => {
@@ -364,5 +365,58 @@ describe("Temporary Chats & Clear Usage Logs", () => {
     const innerPersist = JSON.parse(JSON.parse(paramsPersist.get("f.req")!)[1]);
     expect(innerPersist[41]).toEqual([2]);
     expect(innerPersist[45]).toBeNull();
+  });
+});
+
+describe("Multi-Account AuthUser & Discovery", () => {
+  it("should persist active auth_user in LocalStore and reload it", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gw-authuser-test-"));
+    const storePath = path.join(tmpDir, "store.json");
+    try {
+      const s1 = new LocalStore(storePath);
+      expect(s1.getAuthUser()).toBe("0");
+      expect(s1.setAuthUser("2")).toBe("2");
+      expect(s1.getAuthUser()).toBe("2");
+      s1.flush();
+
+      const s2 = new LocalStore(storePath);
+      expect(s2.getAuthUser()).toBe("2");
+      s2.flush();
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("should discover signed-in Google accounts and stop when SNlM0e is absent", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("/u/0/app")) {
+        return new Response(
+          `"SNlM0e":"token0","oPEP7c":"user0@example.com","https://lh3.googleusercontent.com/a/fake-avatar-0=s96-c"`,
+          { status: 200 }
+        );
+      }
+      if (url.includes("/u/1/app")) {
+        return new Response(`"SNlM0e":"token1","oPEP7c":"user1@example.com"`, { status: 200 });
+      }
+      return new Response(`<html>not signed in</html>`, { status: 200 });
+    });
+
+    try {
+      const accounts = await discoverGoogleAccounts("__Secure-1PSID=abc; SAPISID=xyz", true);
+      expect(accounts).toHaveLength(2);
+      expect(accounts[0]).toEqual({
+        index: "0",
+        email: "user0@example.com",
+        avatarUrl: "https://lh3.googleusercontent.com/a/fake-avatar-0=s96-c"
+      });
+      expect(accounts[1]).toEqual({
+        index: "1",
+        email: "user1@example.com",
+        avatarUrl: null
+      });
+    } finally {
+      fetchMock.mockRestore();
+    }
   });
 });

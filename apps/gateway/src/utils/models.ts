@@ -1,5 +1,5 @@
 import { loadCookie, makeSapisidHash } from "./cookie.js";
-import { AUTH_USER } from "../config.js";
+import { store } from "../db.js";
 import { logger } from "../logger.js";
 import { fetchWithRetry } from "./fetchWithRetry.js";
 
@@ -94,7 +94,8 @@ async function fetchModelsFromGemini(
   sapisid: string | null
 ): Promise<Record<string, ModelConfig> | null> {
   try {
-    const prefix = AUTH_USER ? `/u/${AUTH_USER}` : "";
+    const activeAuthUser = store.getAuthUser();
+    const prefix = activeAuthUser ? `/u/${activeAuthUser}` : "";
     const headers: Record<string, string> = {
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
