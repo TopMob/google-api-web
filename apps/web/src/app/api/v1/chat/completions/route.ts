@@ -34,7 +34,6 @@ export async function POST(req: NextRequest) {
             controller.close();
             return;
           }
-          const decoder = new TextDecoder();
           try {
             while (true) {
               const { done, value } = await reader.read();
@@ -61,7 +60,8 @@ export async function POST(req: NextRequest) {
 
     const data = await response.json();
     return NextResponse.json(data);
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

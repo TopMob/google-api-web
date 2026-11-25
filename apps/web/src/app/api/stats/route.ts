@@ -10,7 +10,8 @@ export async function GET(req: NextRequest) {
     });
     if (!res.ok) throw new Error(`Gateway error: ${res.status}`);
     return NextResponse.json(await res.json());
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
