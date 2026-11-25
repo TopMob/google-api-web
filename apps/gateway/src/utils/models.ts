@@ -9,91 +9,32 @@ export interface ModelConfig {
   desc: string;
 }
 
-// Models matching Gemini Web chat interface
+// Active models matching current Gemini Web UI
 const FALLBACK_MODELS: Record<string, ModelConfig> = {
-  // ── Gemini 4 Elemental Series ────────────────────────────────────
-  "gemini-4-carbon": {
-    mode: 3,
-    think: 0,
-    desc: "Gemini 4 Carbon — Флагманская frontier-модель для сложного анализа"
-  },
-  "gemini-4-argon": {
-    mode: 3,
+  "gemini-4-hydrogen": {
+    mode: 1,
     think: 4,
-    desc: "Gemini 4 Argon — Сбалансированная frontier-модель для ежедневных задач"
+    desc: "Gemini 4 Hydrogen — Быстрая модель для повседневных задач"
   },
   "gemini-4-neon": {
     mode: 2,
     think: 0,
-    desc: "Gemini 4 Neon — Средний уровень между Hydrogen и Carbon для кода и агентов"
+    desc: "Gemini 4 Neon — Глубокий анализ и рассуждения"
   },
-  "gemini-4-hydrogen": {
-    mode: 1,
-    think: 4,
-    desc: "Gemini 4 Hydrogen — Быстрая высокоэффективная модель для потоковых задач"
-  },
-
-  // ── Gemini 3.x Series ────────────────────────────────────────────
-  "gemini-3.8-flash": {
-    mode: 1,
-    think: 4,
-    desc: "3.8 Flash — All-around help (Default chat model)"
-  },
-  "gemini-3.8-flash-thinking": {
-    mode: 2,
-    think: 0,
-    desc: "3.8 Flash Thinking — Расширенные способности к размышлению"
-  },
-  "gemini-3.1-pro": {
+  "gemini-4-argon": {
     mode: 3,
     think: 4,
-    desc: "3.1 Pro — Расширенные возможности рассуждения"
+    desc: "Gemini 4 Argon — Сбалансированная frontier-модель"
   },
-  "gemini-3.5-flash-lite": {
-    mode: 6,
-    think: 4,
-    desc: "3.5 Flash-Lite — Самые быстрые ответы"
+  "gemini-4-carbon": {
+    mode: 3,
+    think: 0,
+    desc: "Gemini 4 Carbon — Флагманская модель для кода и сложных задач"
   },
   "gemini-auto": {
     mode: 4,
     think: 4,
-    desc: "Gemini Auto — Автоматический выбор"
-  },
-  // Convenient aliases
-  "gemini-carbon": {
-    mode: 3,
-    think: 0,
-    desc: "Gemini Carbon (Points to Gemini 4 Carbon)"
-  },
-  "gemini-argon": {
-    mode: 3,
-    think: 4,
-    desc: "Gemini Argon (Points to Gemini 4 Argon)"
-  },
-  "gemini-neon": {
-    mode: 2,
-    think: 0,
-    desc: "Gemini Neon (Points to Gemini 4 Neon)"
-  },
-  "gemini-hydrogen": {
-    mode: 1,
-    think: 4,
-    desc: "Gemini Hydrogen (Points to Gemini 4 Hydrogen)"
-  },
-  "gemini-flash": {
-    mode: 1,
-    think: 4,
-    desc: "Gemini Flash (Points to 3.8 Flash)"
-  },
-  "gemini-pro": {
-    mode: 3,
-    think: 4,
-    desc: "Gemini Pro (Points to 3.1 Pro)"
-  },
-  "gemini-thinking": {
-    mode: 2,
-    think: 0,
-    desc: "Gemini Thinking (Points to 3.8 Flash Thinking)"
+    desc: "Gemini Auto — Автоматический выбор модели"
   }
 };
 
@@ -234,24 +175,6 @@ function parseModelsFromHtml(html: string): Record<string, ModelConfig> | null {
       const desc = generateDescription(name);
 
       models[name] = { mode, think, desc };
-
-      // Add thinking variant for reasoning models
-      if (
-        !name.includes("thinking") &&
-        (name.includes("flash") ||
-          name.includes("pro") ||
-          name.includes("carbon") ||
-          name.includes("argon") ||
-          name.includes("neon") ||
-          name.includes("hydrogen"))
-      ) {
-        const thinkingName = `${name}-thinking`;
-        models[thinkingName] = {
-          mode: 2,
-          think: 0,
-          desc: `${desc} (Extended Thinking)`
-        };
-      }
     }
 
     return Object.keys(models).length > 0 ? models : null;

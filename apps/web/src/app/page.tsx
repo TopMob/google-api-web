@@ -294,7 +294,7 @@ export default function Home() {
     const modelToUse =
       thinkDepth !== "auto" && selectedModel && !selectedModel.includes("@think=")
         ? `${selectedModel}@think=${thinkDepth}`
-        : selectedModel || "gemini-3.8-flash";
+        : selectedModel || "gemini-4-hydrogen";
 
     const apiMessages = nextMessages.map((m) => {
       if (m.image) {

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const chatCompletionSchema = z.object({
-  model: z.string().optional().default("gemini-3.5-flash"),
+  model: z.string().optional().default("gemini-4-hydrogen"),
   messages: z
     .array(
       z.object({
@@ -34,7 +34,7 @@ export const chatCompletionSchema = z.object({
 });
 
 export const responsesApiSchema = z.object({
-  model: z.string().optional().default("gemini-3.5-flash"),
+  model: z.string().optional().default("gemini-4-hydrogen"),
   input: z
     .union([z.string(), z.array(z.any())])
     .nullable()

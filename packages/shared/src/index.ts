@@ -73,55 +73,25 @@ export interface HealthStatusDto {
 }
 
 export const MODELS: Record<string, ModelConfig> = {
-  "gemini-4-carbon": {
-    mode: 3,
+  "gemini-4-hydrogen": {
+    mode: 1,
+    think: 4,
+    desc: "Gemini 4 Hydrogen — High-speed execution model"
+  },
+  "gemini-4-neon": {
+    mode: 2,
     think: 0,
-    desc: "Gemini 4 Carbon — Flagship frontier reasoning model"
+    desc: "Gemini 4 Neon — Mid-tier coding and deep reasoning model"
   },
   "gemini-4-argon": {
     mode: 3,
     think: 4,
     desc: "Gemini 4 Argon — Balanced heavy-duty frontier model"
   },
-  "gemini-4-neon": {
-    mode: 2,
-    think: 0,
-    desc: "Gemini 4 Neon — Mid-tier coding and agentic model"
-  },
-  "gemini-4-hydrogen": {
-    mode: 1,
-    think: 4,
-    desc: "Gemini 4 Hydrogen — High-speed execution model"
-  },
-  "gemini-3.8-flash": {
-    mode: 1,
-    think: 4,
-    desc: "Gemini 3.8 Flash — All-around help (Default chat model)"
-  },
-  "gemini-3.8-flash-thinking": {
-    mode: 2,
-    think: 0,
-    desc: "Gemini 3.8 Flash Thinking — Extended chain-of-thought reasoning"
-  },
-  "gemini-3.7-flash": {
-    mode: 1,
-    think: 4,
-    desc: "Gemini 3.7 Flash — High performance hybrid reasoning"
-  },
-  "gemini-3.7-flash-thinking": {
-    mode: 2,
-    think: 0,
-    desc: "Gemini 3.7 Flash Thinking — Dynamic reasoning with extended depth"
-  },
-  "gemini-3.1-pro": {
+  "gemini-4-carbon": {
     mode: 3,
-    think: 4,
-    desc: "Gemini 3.1 Pro — High complexity reasoning"
-  },
-  "gemini-3.5-flash-lite": {
-    mode: 6,
-    think: 4,
-    desc: "Gemini 3.5 Flash-Lite — Fastest response latency"
+    think: 0,
+    desc: "Gemini 4 Carbon — Flagship frontier reasoning model"
   },
   "gemini-auto": {
     mode: 4,

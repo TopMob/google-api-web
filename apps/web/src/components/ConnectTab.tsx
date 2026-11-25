@@ -114,7 +114,7 @@ export default function ConnectTab({
   const t = translations[lang];
   const cleanRootUrl = gatewayUrl.replace(/\/+$/, "").replace(/\/v1$/, "");
   const openAiBaseUrl = `${cleanRootUrl}/v1`;
-  const effectiveModel = selectedModel || models[0] || "gemini-3.8-flash";
+  const effectiveModel = selectedModel || models[0] || "gemini-4-hydrogen";
 
   // Client presets state
   const [client, setClient] = useState<ClientId>("cursor");
