@@ -1,12 +1,14 @@
-# Gemini Web2API Gateway & Control Panel (Local)
+# google-api-web
 
 Персональный OpenAI-compatible и Google Native AI Gateway на базе Gemini Web для локального использования.
 
----
+> Проект предназначен для локального использования и экспериментов. Он может зависеть от текущего поведения стороннего веб-интерфейса Gemini и перестать работать после его изменений.
 
-## Архитектура и сервисы
+## Архитектура
 
-Проект работает полностью локально на вашем компьютере:
+- `apps/web` — локальная панель управления;
+- `apps/gateway` — Fastify-шлюз;
+- `packages/shared` — общие типы и контракты.
 
 1. **Панель управления (`apps/web`):** [http://localhost:3000](http://localhost:3000) (Next.js 16 + React 19 + Tailwind CSS v4)
    - **Чат:** диалог со стримингом, рендерингом Markdown и блоков `<think>`, прикреплением и вставкой изображений (`Ctrl+V`).
@@ -15,12 +17,15 @@
 2. **API-шлюз (`apps/gateway`):** [http://localhost:8081](http://localhost:8081) / [http://localhost:8081/v1](http://localhost:8081/v1) (Fastify + TypeScript)
 3. **Общие контракты (`packages/shared`):** общие TypeScript-типы и конфигурация моделей.
 
----
+- панель: `http://localhost:3000`;
+- API: `http://localhost:8081`;
+- OpenAI-compatible API: `http://localhost:8081/v1`.
 
 ## Запуск проекта
 
 ```bash
-# 1. Установка зависимостей (при первом запуске)
+git clone https://github.com/TopMob/google-api-web.git
+cd google-api-web
 npm install
 
 # 2. Запуск локального dev-сервера (шлюз + веб-панель)
@@ -99,9 +104,12 @@ export GOOGLE_GEMINI_BASE_URL="http://localhost:8081"
 gemini
 ```
 
----
+## API
 
-## Выбор Google-аккаунта (`AUTH_USER`)
+- `GET /v1/models`
+- `POST /v1/chat/completions`
+- `POST /v1/responses`
+- `GET /health`
 
 Если в браузере выполнен вход в несколько аккаунтов Google, укажите индекс аккаунта в `config.json` (или переменной `AUTH_USER`):
 
