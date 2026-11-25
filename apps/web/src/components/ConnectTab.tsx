@@ -1,7 +1,20 @@
 "use client";
 
 import React, { useState } from "react";
-import { Copy, Check, Plus, Trash2, Key, Cookie, Terminal, RefreshCw, ShieldCheck, AlertTriangle } from "lucide-react";
+import Image from "next/image";
+import {
+  Copy,
+  Check,
+  Plus,
+  Trash2,
+  Key,
+  Cookie,
+  Terminal,
+  RefreshCw,
+  ShieldCheck,
+  AlertTriangle,
+  User
+} from "lucide-react";
 import { translations, Language } from "../utils/i18n";
 
 export interface ProjectItem {
@@ -32,6 +45,12 @@ export interface CookieStatusData {
   requiredCookies: Array<{ name: string; required: boolean; desc: string }>;
 }
 
+export interface GoogleAccountItem {
+  index: string;
+  email: string | null;
+  avatarUrl: string | null;
+}
+
 interface ConnectTabProps {
   gatewayUrl: string;
   models: string[];
@@ -55,6 +74,11 @@ interface ConnectTabProps {
   onDeleteKey: (id: string) => Promise<void>;
   cookieStatus: CookieStatusData | null;
   onSaveCookie: (cookieStr: string) => Promise<{ success: boolean; message: string }>;
+  accounts: GoogleAccountItem[];
+  activeAuthUser: string;
+  isLoadingAccounts: boolean;
+  onRefreshAccounts: () => Promise<void>;
+  onSelectAccount: (authUser: string) => Promise<void>;
   lang: Language;
 }
 
@@ -109,6 +133,11 @@ export default function ConnectTab({
   onDeleteKey,
   cookieStatus,
   onSaveCookie,
+  accounts,
+  activeAuthUser,
+  isLoadingAccounts,
+  onRefreshAccounts,
+  onSelectAccount,
   lang
 }: ConnectTabProps) {
   const t = translations[lang];
@@ -136,6 +165,7 @@ export default function ConnectTab({
   const [cookieInput, setCookieInput] = useState("");
   const [isSavingCookie, setIsSavingCookie] = useState(false);
   const [cookieFeedback, setCookieFeedback] = useState<{ success: boolean; message: string } | null>(null);
+  const [switchingAccount, setSwitchingAccount] = useState<string | null>(null);
 
   const getSnippet = (): { hint?: string; code: string } => {
     switch (client) {
@@ -738,6 +768,91 @@ export default function ConnectTab({
               })}
             </div>
           ) : null}
+
+          {/* Multi-Account Switcher */}
+          <div className="rounded-lg bg-[#0d0f14] border border-[#222633] p-3.5 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="text-xs font-medium text-[#eceef4] flex items-center gap-1.5">
+                  <User size={13} className="text-[#4f8cff]" />
+                  <span>{t.accountsTitle}</span>
+                </div>
+                <p className="text-[11px] text-[#8e95a8] mt-0.5">{t.accountsSubtitle}</p>
+              </div>
+              <button
+                type="button"
+                disabled={isLoadingAccounts}
+                onClick={() => void onRefreshAccounts()}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#171a22] hover:bg-[#222633] border border-[#222633] text-xs text-[#c5cbe0] hover:text-white transition-colors disabled:opacity-40"
+              >
+                <RefreshCw size={12} className={isLoadingAccounts ? "animate-spin" : ""} />
+                <span>{t.btnRefreshAccounts}</span>
+              </button>
+            </div>
+
+            {accounts.length === 0 ? (
+              <p className="text-xs text-[#8e95a8]">{t.accountsEmpty}</p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {accounts.map((acc) => {
+                  const isActive = acc.index === activeAuthUser;
+                  const isSwitching = switchingAccount === acc.index;
+                  const displayName = acc.email || `${t.accountNoEmail} #${acc.index}`;
+                  const initial = (acc.email?.[0] || acc.index).toUpperCase();
+
+                  return (
+                    <button
+                      key={acc.index}
+                      type="button"
+                      disabled={switchingAccount !== null}
+                      onClick={async () => {
+                        if (isActive) return;
+                        setSwitchingAccount(acc.index);
+                        try {
+                          await onSelectAccount(acc.index);
+                        } finally {
+                          setSwitchingAccount(null);
+                        }
+                      }}
+                      className={`flex items-center gap-2.5 p-2.5 rounded-lg border text-left transition-colors ${
+                        isActive
+                          ? "bg-[#4f8cff]/10 border-[#4f8cff]/50 text-[#eceef4]"
+                          : "bg-[#111319] border-[#222633] hover:border-[#363c4f] text-[#c5cbe0]"
+                      } disabled:opacity-60`}
+                    >
+                      {acc.avatarUrl ? (
+                        <Image
+                          src={acc.avatarUrl}
+                          alt={displayName}
+                          width={28}
+                          height={28}
+                          unoptimized
+                          className="w-7 h-7 rounded-full object-cover shrink-0 border border-[#222633]"
+                        />
+                      ) : (
+                        <span className="w-7 h-7 rounded-full bg-[#1a1e29] border border-[#222633] flex items-center justify-center text-xs font-medium text-[#9ec2ff] shrink-0">
+                          {initial}
+                        </span>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-medium truncate">{displayName}</div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="text-[10px] font-mono text-[#8e95a8]">/u/{acc.index}</span>
+                          {isActive ? (
+                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-300 font-medium">
+                              {t.accountActiveBadge}
+                            </span>
+                          ) : isSwitching ? (
+                            <RefreshCw size={10} className="animate-spin text-[#4f8cff]" />
+                          ) : null}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
           <div className="space-y-2.5">
             <textarea

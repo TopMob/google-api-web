@@ -1,5 +1,6 @@
 import crypto from "crypto";
-import { config, GEMINI_BL, AUTH_USER, RETRY_ATTEMPTS, RETRY_DELAY_SEC, TEMPORARY_CHATS } from "../config.js";
+import { config, GEMINI_BL, RETRY_ATTEMPTS, RETRY_DELAY_SEC, TEMPORARY_CHATS } from "../config.js";
+import { store } from "../db.js";
 import { loadCookie, makeSapisidHash, parseRawCookieString, getGeminiSessionInfo } from "../utils/cookie.js";
 import { fetchWithRetry } from "../utils/fetchWithRetry.js";
 
@@ -86,8 +87,9 @@ export async function buildGeminiRequest(
     sapisid = loaded.sapisid;
   }
 
-  // Get dynamic build label and SNlM0e token
-  const sessionInfo = await getGeminiSessionInfo(cookieStr, sapisid);
+  // Get dynamic build label and SNlM0e token for active Google account
+  const activeAuthUser = store.getAuthUser();
+  const sessionInfo = await getGeminiSessionInfo(cookieStr, sapisid, activeAuthUser);
   const bl = sessionInfo.bl || GEMINI_BL;
   const sn = sessionInfo.sn;
 
@@ -108,7 +110,7 @@ export async function buildGeminiRequest(
   }
 
   const reqid = Math.floor(Date.now() / 1000) % 1000000;
-  const prefix = AUTH_USER ? `/u/${AUTH_USER}` : "";
+  const prefix = activeAuthUser ? `/u/${activeAuthUser}` : "";
   const url = `https://gemini.google.com${prefix}/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate?bl=${bl}&hl=en&_reqid=${reqid}&rt=c`;
 
   const headers: Record<string, string> = {
@@ -120,8 +122,8 @@ export async function buildGeminiRequest(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
   };
 
-  if (AUTH_USER) {
-    headers["X-Goog-AuthUser"] = String(AUTH_USER);
+  if (activeAuthUser) {
+    headers["X-Goog-AuthUser"] = String(activeAuthUser);
   }
 
   if (cookieStr) {

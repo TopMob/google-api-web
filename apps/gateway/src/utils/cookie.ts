@@ -1,7 +1,8 @@
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
-import { config, AUTH_USER, GEMINI_COOKIE, COOKIE_FILE } from "../config.js";
+import { config, GEMINI_COOKIE, COOKIE_FILE } from "../config.js";
+import { store } from "../db.js";
 import { logger } from "../logger.js";
 import { fetchWithRetry } from "./fetchWithRetry.js";
 
@@ -11,11 +12,21 @@ const COOKIE_FILE_TTL_MS = 30 * 1000;
 export interface SessionInfo {
   bl: string;
   sn: string;
+  email: string | null;
+  avatarUrl: string | null;
   timestamp: number;
+}
+
+export interface GoogleAccountInfo {
+  index: string;
+  email: string | null;
+  avatarUrl: string | null;
 }
 
 let cachedSessionInfo: Map<string, SessionInfo> = new Map();
 const SESSION_INFO_TTL_MS = 20 * 60 * 1000; // 20 minutes
+const cachedAccounts: Map<string, { accounts: GoogleAccountInfo[]; timestamp: number }> = new Map();
+const ACCOUNTS_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 function buildCookieResult(cookiesObj: Record<string, string>) {
   const cookieStr = Object.entries(cookiesObj)
@@ -221,22 +232,24 @@ export function parseAndValidateCookie(key: string): { valid: boolean; data?: Ge
 }
 
 /**
- * Fetch dynamic session info (BL build identifier and SNlM0e auth token) from Gemini app page.
+ * Fetch dynamic session info (BL build identifier, SNlM0e auth token, email, avatar) from Gemini app page.
  */
 export async function getGeminiSessionInfo(
   cookieStr: string,
-  sapisid: string | null
-): Promise<{ bl: string; sn: string }> {
-  const cacheKey = crypto.createHash("sha256").update(cookieStr).digest("hex");
+  sapisid: string | null,
+  authUser?: string
+): Promise<{ bl: string; sn: string; email: string | null; avatarUrl: string | null }> {
+  const effectiveAuthUser = authUser ?? store.getAuthUser();
+  const cacheKey = `${crypto.createHash("sha256").update(cookieStr).digest("hex")}:${effectiveAuthUser}`;
   const cached = cachedSessionInfo.get(cacheKey);
   const now = Date.now();
 
   if (cached && now - cached.timestamp < SESSION_INFO_TTL_MS) {
-    return { bl: cached.bl, sn: cached.sn };
+    return { bl: cached.bl, sn: cached.sn, email: cached.email, avatarUrl: cached.avatarUrl };
   }
 
   const fallbackBl = "boq_assistant-bard-web-server_20260827.05_p0";
-  const prefix = AUTH_USER ? `/u/${AUTH_USER}` : "";
+  const prefix = effectiveAuthUser ? `/u/${effectiveAuthUser}` : "";
   const headers: Record<string, string> = {
     "User-Agent":
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -256,18 +269,76 @@ export async function getGeminiSessionInfo(
     const html = await res.text();
     const blMatch = html.match(/"cfb2h":"([^"]+)"/);
     const snMatch = html.match(/"SNlM0e":"([^"]+)"/);
+    const emailMatch = html.match(/"oPEP7c":"([^"]+)"/);
+    const avatarMatch = html.match(/https:\/\/lh3\.googleusercontent\.com\/[a-zA-Z0-9_\/=-]+/);
 
     const bl = blMatch ? blMatch[1] : fallbackBl;
     const sn = snMatch ? snMatch[1] : "";
+    const email = emailMatch ? emailMatch[1] : null;
+    const avatarUrl = avatarMatch ? avatarMatch[0] : null;
 
     if (sn) {
-      cachedSessionInfo.set(cacheKey, { bl, sn, timestamp: now });
+      cachedSessionInfo.set(cacheKey, { bl, sn, email, avatarUrl, timestamp: now });
     }
-    return { bl, sn };
+    return { bl, sn, email, avatarUrl };
   } catch (e) {
     logger.error({ err: e }, "Failed to fetch Gemini session info");
-    return { bl: fallbackBl, sn: "" };
+    return { bl: fallbackBl, sn: "", email: null, avatarUrl: null };
   }
+}
+
+export async function discoverGoogleAccounts(
+  cookieStr: string,
+  sapisidOrForce: string | null | boolean = null,
+  forceRefresh = false
+): Promise<GoogleAccountInfo[]> {
+  if (!cookieStr) return [];
+
+  const force = typeof sapisidOrForce === "boolean" ? sapisidOrForce : forceRefresh;
+  const sapisid =
+    typeof sapisidOrForce === "boolean"
+      ? parseRawCookieString(cookieStr).sapisid
+      : (sapisidOrForce ?? parseRawCookieString(cookieStr).sapisid);
+
+  const cookieHash = crypto.createHash("sha256").update(cookieStr).digest("hex");
+  const now = Date.now();
+
+  if (!force) {
+    const cached = cachedAccounts.get(cookieHash);
+    if (cached && now - cached.timestamp < ACCOUNTS_TTL_MS) {
+      return cached.accounts;
+    }
+  } else {
+    for (let i = 0; i < 6; i++) {
+      cachedSessionInfo.delete(`${cookieHash}:${i}`);
+    }
+  }
+
+  const accounts: GoogleAccountInfo[] = [];
+  const maxAccounts = 6;
+
+  for (let i = 0; i < maxAccounts; i++) {
+    const idx = String(i);
+    const info = await getGeminiSessionInfo(cookieStr, sapisid, idx);
+    if (!info.sn || info.sn.length <= 5) {
+      break;
+    }
+    accounts.push({
+      index: idx,
+      email: info.email,
+      avatarUrl: info.avatarUrl
+    });
+  }
+
+  cachedAccounts.set(cookieHash, { accounts, timestamp: now });
+  return accounts;
+}
+
+export function clearCookieDiscoveryCache(): void {
+  cachedCookie = null;
+  cachedSessionInfo.clear();
+  cachedAccounts.clear();
+  cookieValidationCache.clear();
 }
 
 export async function testGeminiConnection(cookieStr: string, sapisid: string | null): Promise<boolean> {
@@ -279,7 +350,7 @@ const cookieValidationCache = new Map<string, { isValid: boolean; timestamp: num
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
 export async function isCookieValidCached(cookieStr: string, sapisid: string | null): Promise<boolean> {
-  const cacheKey = crypto.createHash("sha256").update(cookieStr).digest("hex");
+  const cacheKey = `${crypto.createHash("sha256").update(cookieStr).digest("hex")}:${store.getAuthUser()}`;
   const cached = cookieValidationCache.get(cacheKey);
   const now = Date.now();
 
