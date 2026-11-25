@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { loadCookie, testGeminiConnection, parseAndValidateCookie } from "./cookie.js";
+import { loadCookie, testGeminiConnection, parseAndValidateCookie, clearCookieDiscoveryCache } from "./cookie.js";
 import { logger } from "../logger.js";
 
 /**
@@ -69,10 +69,11 @@ export async function saveCookieFile(
   // Test connection
   const isValid = await testGeminiConnection(normalizedCookie, sapisid);
 
-  // Save to file regardless — user might fix issues later
+  // Save normalized compact cookie string so large exports (like HAR files) don't bloat cookie.txt
   const filePath = getCookieFilePath();
   try {
-    fs.writeFileSync(filePath, cookieStr, "utf-8");
+    fs.writeFileSync(filePath, normalizedCookie, "utf-8");
+    clearCookieDiscoveryCache();
     logger.info(`Cookie saved to ${filePath}`);
   } catch (e) {
     logger.error({ err: e }, "Failed to save cookie file");

@@ -1,10 +1,14 @@
-import { fetch as undiciFetch, ProxyAgent } from "undici";
+import { fetch as undiciFetch, Agent, ProxyAgent } from "undici";
 import { logger } from "../logger.js";
 
+// Google's gemini.google.com/app response headers (e.g. CSP) can exceed Node's 16 KB default limit.
+const MAX_HTTP_HEADER_SIZE = 65536;
 const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy;
-const proxyAgent = proxyUrl ? new ProxyAgent(proxyUrl) : undefined;
+const defaultDispatcher = proxyUrl
+  ? new ProxyAgent({ uri: proxyUrl, maxHeaderSize: MAX_HTTP_HEADER_SIZE })
+  : new Agent({ maxHeaderSize: MAX_HTTP_HEADER_SIZE });
 
-if (proxyAgent) {
+if (proxyUrl) {
   logger.info(`Configured HTTP proxy dispatcher for Gemini upstream requests: ${proxyUrl}`);
 }
 
@@ -49,17 +53,16 @@ export async function fetchWithRetry(
     }
 
     try {
+      const isMocked = globalThis.fetch && globalThis.fetch !== defaultGlobalFetch;
       const fetchOpts: any = {
         ...options,
         signal: controller.signal
       };
-      if (proxyAgent) {
-        fetchOpts.dispatcher = proxyAgent;
+      if (!isMocked) {
+        fetchOpts.dispatcher = defaultDispatcher;
       }
 
-      const isMocked = globalThis.fetch && globalThis.fetch !== defaultGlobalFetch;
-      const fetchFn: typeof fetch =
-        proxyAgent && !isMocked ? (undiciFetch as unknown as typeof fetch) : globalThis.fetch || undiciFetch;
+      const fetchFn: typeof fetch = !isMocked ? (undiciFetch as unknown as typeof fetch) : globalThis.fetch;
       const response = await fetchFn(url, fetchOpts);
 
       clearTimeout(timeoutId);

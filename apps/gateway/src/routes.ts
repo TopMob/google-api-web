@@ -162,16 +162,20 @@ export function registerRoutes(server: FastifyInstance) {
   });
 
   // Cookie Management
-  server.post("/api/cookies/save", async (request: FastifyRequest, reply: FastifyReply) => {
-    const body = request.body as any;
-    const cookieStr = body?.cookie;
-    if (!cookieStr || typeof cookieStr !== "string") {
-      return reply.status(400).send({ error: "Cookie string is required" });
+  server.post(
+    "/api/cookies/save",
+    { bodyLimit: 25 * 1024 * 1024 },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const body = request.body as any;
+      const cookieStr = body?.cookie;
+      if (!cookieStr || typeof cookieStr !== "string") {
+        return reply.status(400).send({ error: "Cookie string is required" });
+      }
+      const saved = await saveCookieFile(cookieStr.trim());
+      clearCookieDiscoveryCache();
+      return saved;
     }
-    const saved = await saveCookieFile(cookieStr.trim());
-    clearCookieDiscoveryCache();
-    return saved;
-  });
+  );
 
   server.get("/api/cookies/status", async () => {
     return await getCookieStatus();

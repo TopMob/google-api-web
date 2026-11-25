@@ -1,4 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
+import fs from "fs";
+import os from "os";
+import path from "path";
 import { fetchWithRetry } from "../src/utils/fetchWithRetry.js";
 import {
   cleanGeminiText,
@@ -7,7 +10,7 @@ import {
   messagesToPrompt,
   cleanJsonResponse
 } from "../src/utils/parsers.js";
-import { parseAndValidateCookie } from "../src/utils/cookie.js";
+import { parseAndValidateCookie, loadCookie, clearCookieDiscoveryCache } from "../src/utils/cookie.js";
 import { chatCompletionSchema } from "../src/utils/schemas.js";
 
 describe("Schema Utilities", () => {
@@ -90,6 +93,88 @@ describe("Cookie Utilities", () => {
     const cookieStr = "random_cookie=abc;";
     const result = parseAndValidateCookie(cookieStr);
     expect(result.valid).toBe(false);
+  });
+
+  it("should automatically extract cookies from HAR JSON exports with Set-Cookie updates", () => {
+    const har = {
+      log: {
+        version: "1.2",
+        entries: [
+          {
+            request: {
+              url: "https://gemini.google.com/app",
+              headers: [
+                { name: "Cookie", value: "__Secure-1PSID=psid_har; SAPISID=sapisid_har; __Secure-1PSIDCC=old" }
+              ],
+              cookies: [{ name: "SID", value: "sid_har" }]
+            },
+            response: {
+              headers: [{ name: "Set-Cookie", value: "__Secure-1PSIDCC=rotated_cc; Path=/; Secure" }],
+              cookies: [{ name: "__Secure-1PSIDTS", value: "ts_har" }]
+            }
+          },
+          {
+            request: {
+              url: "https://accounts.google.com/ServiceLogin",
+              headers: [{ name: "Cookie", value: "SAPISID=other_domain_sapisid" }]
+            }
+          }
+        ]
+      }
+    };
+
+    const result = parseAndValidateCookie(JSON.stringify(har));
+    expect(result.valid).toBe(true);
+    expect(result.data?.cookiesObj["__Secure-1PSID"]).toBe("psid_har");
+    expect(result.data?.cookiesObj["SID"]).toBe("sid_har");
+    expect(result.data?.cookiesObj["__Secure-1PSIDTS"]).toBe("ts_har");
+    expect(result.data?.cookiesObj["__Secure-1PSIDCC"]).toBe("rotated_cc");
+    expect(result.data?.sapisid).toBe("sapisid_har");
+  });
+
+  it("should auto-load the newest HAR or txt cookie file dropped into cookies/", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gw-cookie-scan-"));
+    const cookiesDir = path.join(tmpDir, "cookies");
+    fs.mkdirSync(cookiesDir, { recursive: true });
+    const prevCwd = process.cwd();
+
+    try {
+      const olderFile = path.join(cookiesDir, "cookie.txt");
+      fs.writeFileSync(olderFile, "__Secure-1PSID=old_psid; SAPISID=old_sapisid;", "utf-8");
+      const oldTime = new Date(Date.now() - 60_000);
+      fs.utimesSync(olderFile, oldTime, oldTime);
+
+      const newerHar = path.join(cookiesDir, "export-123.har");
+      fs.writeFileSync(
+        newerHar,
+        JSON.stringify({
+          log: {
+            entries: [
+              {
+                request: {
+                  url: "https://gemini.google.com/app",
+                  cookies: [
+                    { name: "__Secure-1PSID", value: "new_har_psid" },
+                    { name: "SAPISID", value: "new_har_sapisid" }
+                  ]
+                }
+              }
+            ]
+          }
+        }),
+        "utf-8"
+      );
+
+      process.chdir(tmpDir);
+      clearCookieDiscoveryCache();
+      const loaded = loadCookie();
+      expect(loaded.sapisid).toBe("new_har_sapisid");
+      expect(loaded.cookieStr).toContain("__Secure-1PSID=new_har_psid");
+    } finally {
+      process.chdir(prevCwd);
+      clearCookieDiscoveryCache();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });
 

@@ -6,7 +6,13 @@ import { store } from "../db.js";
 import { logger } from "../logger.js";
 import { fetchWithRetry } from "./fetchWithRetry.js";
 
-let cachedCookie: { cookieStr: string; sapisid: string | null; timestamp: number } | null = null;
+let cachedCookie: {
+  cookieStr: string;
+  sapisid: string | null;
+  timestamp: number;
+  filePath?: string;
+  mtimeMs?: number;
+} | null = null;
 const COOKIE_FILE_TTL_MS = 30 * 1000;
 
 export interface SessionInfo {
@@ -43,6 +49,96 @@ function buildCookieResult(cookiesObj: Record<string, string>) {
   return { cookieStr, sapisid, cookiesObj };
 }
 
+function extractCookiesFromHar(data: any): Record<string, string> {
+  const cookiesObj: Record<string, string> = {};
+  const entries = data?.log?.entries;
+  if (!Array.isArray(entries)) return cookiesObj;
+
+  const collectFromEntry = (entry: any) => {
+    const reqCookies = entry?.request?.cookies;
+    if (Array.isArray(reqCookies)) {
+      for (const c of reqCookies) {
+        if (c?.name && c?.value) {
+          cookiesObj[String(c.name)] = String(c.value);
+        }
+      }
+    }
+
+    const reqHeaders = entry?.request?.headers;
+    if (Array.isArray(reqHeaders)) {
+      for (const h of reqHeaders) {
+        if (typeof h?.name === "string" && h.name.toLowerCase() === "cookie" && typeof h.value === "string") {
+          for (const part of h.value.split(";")) {
+            const eqIdx = part.indexOf("=");
+            if (eqIdx > 0) {
+              const name = part.slice(0, eqIdx).trim();
+              const val = part.slice(eqIdx + 1).trim();
+              if (name && val) cookiesObj[name] = val;
+            }
+          }
+        }
+      }
+    }
+
+    const resCookies = entry?.response?.cookies;
+    if (Array.isArray(resCookies)) {
+      for (const c of resCookies) {
+        if (c?.name && c?.value && c.value !== "deleted") {
+          cookiesObj[String(c.name)] = String(c.value);
+        }
+      }
+    }
+
+    const resHeaders = entry?.response?.headers;
+    if (Array.isArray(resHeaders)) {
+      for (const h of resHeaders) {
+        if (typeof h?.name === "string" && h.name.toLowerCase() === "set-cookie" && typeof h.value === "string") {
+          const firstPart = h.value.split(";")[0];
+          const eqIdx = firstPart.indexOf("=");
+          if (eqIdx > 0) {
+            const name = firstPart.slice(0, eqIdx).trim();
+            const val = firstPart.slice(eqIdx + 1).trim();
+            if (name && val && val !== "deleted") {
+              cookiesObj[name] = val;
+            }
+          }
+        }
+      }
+    }
+  };
+
+  const getHost = (entry: any): string => {
+    const url = entry?.request?.url;
+    if (typeof url !== "string") return "";
+    try {
+      return new URL(url).hostname.toLowerCase();
+    } catch {
+      return "";
+    }
+  };
+
+  const googleEntries = entries.filter((e) => {
+    const host = getHost(e);
+    return host === "google.com" || host.endsWith(".google.com");
+  });
+
+  if (googleEntries.length > 0) {
+    // Apply general *.google.com entries first, then gemini.google.com entries so Gemini session cookies win.
+    for (const e of googleEntries) {
+      if (getHost(e) !== "gemini.google.com") collectFromEntry(e);
+    }
+    for (const e of googleEntries) {
+      if (getHost(e) === "gemini.google.com") collectFromEntry(e);
+    }
+  } else {
+    for (const e of entries) {
+      collectFromEntry(e);
+    }
+  }
+
+  return cookiesObj;
+}
+
 export function parseRawCookieString(content: string): {
   cookieStr: string;
   sapisid: string | null;
@@ -51,7 +147,7 @@ export function parseRawCookieString(content: string): {
   const cookiesObj: Record<string, string> = {};
   const trimmed = content.trim();
 
-  // Try JSON format (handles JSON objects and Cookie-Editor exported JSON arrays)
+  // Try JSON format (HAR archives, JSON objects, and Cookie-Editor exported JSON arrays)
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
     try {
       const data = JSON.parse(trimmed);
@@ -65,6 +161,12 @@ export function parseRawCookieString(content: string): {
           return buildCookieResult(cookiesObj);
         }
       } else if (typeof data === "object" && data !== null) {
+        if (data.log && Array.isArray(data.log.entries)) {
+          const harCookies = extractCookiesFromHar(data);
+          if (Object.keys(harCookies).length > 0) {
+            return buildCookieResult(harCookies);
+          }
+        }
         if (data.cookie) {
           return parseRawCookieString(data.cookie);
         }
@@ -151,16 +253,28 @@ export function loadCookie(): { cookieStr: string; sapisid: string | null } {
   }
 
   const now = Date.now();
-  if (cachedCookie && now - cachedCookie.timestamp < COOKIE_FILE_TTL_MS) {
-    return { cookieStr: cachedCookie.cookieStr, sapisid: cachedCookie.sapisid };
-  }
+  const seen = new Set<string>();
+  const candidates: Array<{ filePath: string; mtimeMs: number; priority: number }> = [];
 
-  const paths: string[] = [];
+  const addCandidate = (p: string, priority: number) => {
+    const resolved = path.resolve(p);
+    if (seen.has(resolved)) return;
+    seen.add(resolved);
+    try {
+      if (!fs.existsSync(resolved)) return;
+      const stat = fs.statSync(resolved);
+      if (!stat.isDirectory()) {
+        candidates.push({ filePath: resolved, mtimeMs: stat.mtimeMs, priority });
+      }
+    } catch {}
+  };
+
   if (COOKIE_FILE) {
-    paths.push(path.resolve(process.cwd(), COOKIE_FILE), path.resolve(process.cwd(), "apps/gateway", COOKIE_FILE));
+    addCandidate(path.resolve(process.cwd(), COOKIE_FILE), 1);
+    addCandidate(path.resolve(process.cwd(), "apps/gateway", COOKIE_FILE), 1);
   }
 
-  // Check all common cookie file names in cookies/ and root
+  // Check all common cookie file names and any dropped .har/.txt/.json files in cookies/
   const checkDirs = [
     process.cwd(),
     path.resolve(process.cwd(), "cookies"),
@@ -173,22 +287,48 @@ export function loadCookie(): { cookieStr: string; sapisid: string | null } {
 
   for (const d of checkDirs) {
     for (const f of fileNames) {
-      paths.push(path.join(d, f));
+      addCandidate(path.join(d, f), 0);
+    }
+    if (path.basename(d) === "cookies" && fs.existsSync(d)) {
+      try {
+        for (const entry of fs.readdirSync(d)) {
+          if (entry === ".gitkeep" || (entry.startsWith(".") && entry !== ".cookie")) continue;
+          if (/\.(har|txt|json)$/i.test(entry)) {
+            addCandidate(path.join(d, entry), 0);
+          }
+        }
+      } catch {}
     }
   }
 
-  for (const p of paths) {
-    if (fs.existsSync(p) && !fs.statSync(p).isDirectory()) {
-      try {
-        const content = fs.readFileSync(p, "utf-8");
-        const parsed = parseRawCookieString(content);
-        if (parsed.cookieStr && (parsed.cookiesObj["__Secure-1PSID"] || parsed.cookiesObj["SID"])) {
-          cachedCookie = { cookieStr: parsed.cookieStr, sapisid: parsed.sapisid, timestamp: now };
-          return { cookieStr: parsed.cookieStr, sapisid: parsed.sapisid };
-        }
-      } catch (e) {
-        logger.error({ err: e }, `Failed to read cookie file at ${p}`);
+  candidates.sort((a, b) => b.priority - a.priority || b.mtimeMs - a.mtimeMs);
+
+  if (
+    cachedCookie &&
+    candidates.length > 0 &&
+    cachedCookie.filePath === candidates[0].filePath &&
+    cachedCookie.mtimeMs === candidates[0].mtimeMs &&
+    now - cachedCookie.timestamp < COOKIE_FILE_TTL_MS
+  ) {
+    return { cookieStr: cachedCookie.cookieStr, sapisid: cachedCookie.sapisid };
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const content = fs.readFileSync(candidate.filePath, "utf-8");
+      const parsed = parseRawCookieString(content);
+      if (parsed.cookieStr && (parsed.cookiesObj["__Secure-1PSID"] || parsed.cookiesObj["SID"])) {
+        cachedCookie = {
+          cookieStr: parsed.cookieStr,
+          sapisid: parsed.sapisid,
+          timestamp: now,
+          filePath: candidate.filePath,
+          mtimeMs: candidate.mtimeMs
+        };
+        return { cookieStr: parsed.cookieStr, sapisid: parsed.sapisid };
       }
+    } catch (e) {
+      logger.error({ err: e }, `Failed to read cookie file at ${candidate.filePath}`);
     }
   }
 

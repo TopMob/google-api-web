@@ -109,11 +109,12 @@ export const translations = {
     cookiesSubtitle: "Нужны для моделей Pro, расширенного контекста и загрузки изображений.",
     cookiesHowToTitle: "Как получить куки (быстро)",
     cookiesHowToSteps:
-      "Откройте gemini.google.com → F12 → Application (или Network) → Cookies → скопируйте строку заголовка Cookie (или экспортируйте через Cookie-Editor в формате Header String / JSON).",
-    cookieInputPlaceholder: "Вставьте куки (__Secure-1PSID=...; __Secure-1PSIDTS=...; SAPISID=...)",
+      "Откройте gemini.google.com → F12 → Network → сохраните HAR-файл (Save All As HAR) и загрузите его сюда кнопкой ниже или просто положите в папку cookies/ — парсер сам достанет куки. Также поддерживаются строка Cookie, Netscape и Cookie-Editor JSON.",
+    cookieInputPlaceholder: "Вставьте куки, JSON или содержимое HAR-файла (либо перетащите файл сюда)...",
     btnSaveCookies: "Сохранить и проверить",
+    btnUploadCookieFile: "Загрузить файл (.har / .txt / .json)",
     btnCheckingCookies: "Проверка...",
-    cookieSavedHint: "Сохраняется локально в cookies/cookie.txt",
+    cookieSavedHint: "Сохраняется локально в cookies/cookie.txt (или просто кладите .har/.txt в cookies/)",
 
     // Logs Tab
     logsTitle: "Журнал запросов и метрики",
@@ -255,11 +256,12 @@ export const translations = {
     cookiesSubtitle: "Required for Pro models, extended thinking, and image uploads.",
     cookiesHowToTitle: "How to extract cookies",
     cookiesHowToSteps:
-      "Open gemini.google.com → F12 → Application (or Network) → Cookies → copy the Cookie header string (or export Header String / JSON via Cookie-Editor).",
-    cookieInputPlaceholder: "Paste cookie string (__Secure-1PSID=...; __Secure-1PSIDTS=...; SAPISID=...)",
+      "Open gemini.google.com → F12 → Network → Save All As HAR and upload the file below (or drop any .har/.txt into cookies/ — it auto-parses). Also supports Cookie header string, Netscape, and Cookie-Editor JSON.",
+    cookieInputPlaceholder: "Paste cookies, JSON, or HAR content (or drag & drop a file here)...",
     btnSaveCookies: "Save & Verify",
+    btnUploadCookieFile: "Upload file (.har / .txt / .json)",
     btnCheckingCookies: "Verifying...",
-    cookieSavedHint: "Stored locally in cookies/cookie.txt",
+    cookieSavedHint: "Stored in cookies/cookie.txt (or drop .har/.txt into cookies/)",
 
     // Logs Tab
     logsTitle: "Request Logs & Analytics",

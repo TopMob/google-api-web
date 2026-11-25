@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import Image from "next/image";
 import {
   Copy,
@@ -13,7 +13,8 @@ import {
   RefreshCw,
   ShieldCheck,
   AlertTriangle,
-  User
+  User,
+  Upload
 } from "lucide-react";
 import { translations, Language } from "../utils/i18n";
 
@@ -164,8 +165,10 @@ export default function ConnectTab({
   // Cookie state
   const [cookieInput, setCookieInput] = useState("");
   const [isSavingCookie, setIsSavingCookie] = useState(false);
+  const [isDraggingCookie, setIsDraggingCookie] = useState(false);
   const [cookieFeedback, setCookieFeedback] = useState<{ success: boolean; message: string } | null>(null);
   const [switchingAccount, setSwitchingAccount] = useState<string | null>(null);
+  const cookieFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const getSnippet = (): { hint?: string; code: string } => {
     switch (client) {
@@ -320,19 +323,104 @@ export default function ConnectTab({
     setShowProjectInput(false);
   };
 
-  const handleCookieSubmit = async () => {
-    if (!cookieInput.trim() || isSavingCookie) return;
+  const extractHarCookiesIfNeeded = (raw: string): string => {
+    const trimmed = raw.trim();
+    if (!trimmed.startsWith("{")) return trimmed;
+    try {
+      const data = JSON.parse(trimmed);
+      const entries = data?.log?.entries;
+      if (!Array.isArray(entries)) return trimmed;
+
+      const cookiesMap = new Map<string, string>();
+      const collect = (entry: any) => {
+        for (const c of entry?.request?.cookies || []) {
+          if (c?.name && c?.value) cookiesMap.set(String(c.name), String(c.value));
+        }
+        for (const h of entry?.request?.headers || []) {
+          if (typeof h?.name === "string" && h.name.toLowerCase() === "cookie" && typeof h.value === "string") {
+            for (const part of h.value.split(";")) {
+              const eq = part.indexOf("=");
+              if (eq > 0) {
+                const name = part.slice(0, eq).trim();
+                const val = part.slice(eq + 1).trim();
+                if (name && val) cookiesMap.set(name, val);
+              }
+            }
+          }
+        }
+        for (const c of entry?.response?.cookies || []) {
+          if (c?.name && c?.value && c.value !== "deleted") cookiesMap.set(String(c.name), String(c.value));
+        }
+        for (const h of entry?.response?.headers || []) {
+          if (typeof h?.name === "string" && h.name.toLowerCase() === "set-cookie" && typeof h.value === "string") {
+            const firstPart = h.value.split(";")[0];
+            const eq = firstPart.indexOf("=");
+            if (eq > 0) {
+              const name = firstPart.slice(0, eq).trim();
+              const val = firstPart.slice(eq + 1).trim();
+              if (name && val && val !== "deleted") cookiesMap.set(name, val);
+            }
+          }
+        }
+      };
+
+      const getHost = (entry: any): string => {
+        try {
+          return typeof entry?.request?.url === "string" ? new URL(entry.request.url).hostname.toLowerCase() : "";
+        } catch {
+          return "";
+        }
+      };
+
+      const googleEntries = entries.filter((e: any) => {
+        const h = getHost(e);
+        return h === "google.com" || h.endsWith(".google.com");
+      });
+
+      if (googleEntries.length > 0) {
+        for (const e of googleEntries) {
+          if (getHost(e) !== "gemini.google.com") collect(e);
+        }
+        for (const e of googleEntries) {
+          if (getHost(e) === "gemini.google.com") collect(e);
+        }
+      } else {
+        for (const e of entries) collect(e);
+      }
+
+      if (cookiesMap.size === 0) return trimmed;
+      return Array.from(cookiesMap.entries())
+        .map(([k, v]) => `${k}=${v}`)
+        .join("; ");
+    } catch {
+      return trimmed;
+    }
+  };
+
+  const saveRawCookie = async (raw: string, clearInputOnSuccess: boolean) => {
+    const prepared = extractHarCookiesIfNeeded(raw);
+    if (!prepared || isSavingCookie) return;
     setIsSavingCookie(true);
     setCookieFeedback(null);
     try {
-      const res = await onSaveCookie(cookieInput.trim());
+      const res = await onSaveCookie(prepared);
       setCookieFeedback(res);
-      if (res.success) {
+      if (res.success && clearInputOnSuccess) {
         setCookieInput("");
       }
     } finally {
       setIsSavingCookie(false);
     }
+  };
+
+  const handleCookieSubmit = async () => {
+    await saveRawCookie(cookieInput, true);
+  };
+
+  const handleCookieFile = async (file: File | undefined) => {
+    if (!file || isSavingCookie) return;
+    const text = await file.text();
+    await saveRawCookie(text, true);
   };
 
   const clientTabs: Array<{ id: ClientId; label: string }> = [
@@ -854,16 +942,53 @@ export default function ConnectTab({
             )}
           </div>
 
-          <div className="space-y-2.5">
+          <div
+            className="space-y-2.5"
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDraggingCookie(true);
+            }}
+            onDragLeave={() => setIsDraggingCookie(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDraggingCookie(false);
+              const file = e.dataTransfer.files?.[0];
+              if (file) void handleCookieFile(file);
+            }}
+          >
+            <input
+              ref={cookieFileInputRef}
+              type="file"
+              accept=".har,.txt,.json,.cookie"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) void handleCookieFile(file);
+              }}
+            />
             <textarea
               rows={3}
               value={cookieInput}
               onChange={(e) => setCookieInput(e.target.value)}
               placeholder={t.cookieInputPlaceholder}
-              className="w-full bg-[#0d0f14] border border-[#222633] focus:border-[#4f8cff] rounded-lg px-3 py-2 text-xs font-mono text-[#eceef4] placeholder-[#8e95a8]/60 outline-none resize-y"
+              className={`w-full bg-[#0d0f14] border rounded-lg px-3 py-2 text-xs font-mono text-[#eceef4] placeholder-[#8e95a8]/60 outline-none resize-y transition-colors ${
+                isDraggingCookie ? "border-[#4f8cff] bg-[#4f8cff]/5" : "border-[#222633] focus:border-[#4f8cff]"
+              }`}
             />
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <span className="text-[11px] text-[#8e95a8]">{t.cookieSavedHint}</span>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <button
+                  type="button"
+                  disabled={isSavingCookie}
+                  onClick={() => cookieFileInputRef.current?.click()}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#171a22] hover:bg-[#222633] border border-[#222633] text-xs font-medium text-[#c5cbe0] hover:text-white transition-colors disabled:opacity-40"
+                >
+                  <Upload size={13} />
+                  <span>{t.btnUploadCookieFile}</span>
+                </button>
+                <span className="text-[11px] text-[#8e95a8]">{t.cookieSavedHint}</span>
+              </div>
               <button
                 type="button"
                 disabled={isSavingCookie || !cookieInput.trim()}
