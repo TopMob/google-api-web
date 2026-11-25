@@ -16,7 +16,7 @@ class GeminiPayloadBuilder {
 
   setPrompt(prompt: string, fileRefs?: string[]) {
     if (fileRefs && fileRefs.length > 0) {
-      const refs = fileRefs.map((ref) => [null, null, ref]);
+      const refs = fileRefs.map((ref) => [[ref, 1], "image.png"]);
       return this.set(0, [prompt, 0, null, refs, null, null, 0]);
     }
     return this.set(0, [prompt, 0, null, null, null, null, 0]);

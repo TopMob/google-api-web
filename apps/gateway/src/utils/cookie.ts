@@ -1,9 +1,9 @@
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
-import https from "https";
 import { config, AUTH_USER, GEMINI_COOKIE, COOKIE_FILE } from "../config.js";
 import { logger } from "../logger.js";
+import { fetchWithRetry } from "./fetchWithRetry.js";
 
 let cachedCookie: { cookieStr: string; sapisid: string | null; timestamp: number } | null = null;
 const COOKIE_FILE_TTL_MS = 30 * 1000;
@@ -235,59 +235,39 @@ export async function getGeminiSessionInfo(
     return { bl: cached.bl, sn: cached.sn };
   }
 
-  return new Promise((resolve) => {
-    const prefix = AUTH_USER ? `/u/${AUTH_USER}` : "";
-    const headers: Record<string, string> = {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      Cookie: cookieStr,
-      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "Accept-Language": "en-US,en;q=0.9"
-    };
+  const fallbackBl = "boq_assistant-bard-web-server_20260827.05_p0";
+  const prefix = AUTH_USER ? `/u/${AUTH_USER}` : "";
+  const headers: Record<string, string> = {
+    "User-Agent":
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    Cookie: cookieStr
+  };
 
-    if (sapisid) {
-      headers["Authorization"] = makeSapisidHash(sapisid);
-    }
+  if (sapisid) {
+    headers["Authorization"] = makeSapisidHash(sapisid);
+  }
 
-    const req = https.request(
-      {
-        hostname: "gemini.google.com",
-        port: 443,
-        path: `${prefix}/app`,
-        method: "GET",
-        headers,
-        maxHeaderSize: 65536,
-        timeout: 8000
-      },
-      (res) => {
-        let html = "";
-        res.on("data", (chunk) => (html += chunk));
-        res.on("end", () => {
-          const blMatch = html.match(/"cfb2h":"([^"]+)"/);
-          const snMatch = html.match(/"SNlM0e":"([^"]+)"/);
-
-          const bl = blMatch ? blMatch[1] : "boq_assistant-bard-web-server_20260827.05_p0";
-          const sn = snMatch ? snMatch[1] : "";
-
-          cachedSessionInfo.set(cacheKey, { bl, sn, timestamp: now });
-          resolve({ bl, sn });
-        });
-      }
+  try {
+    const res = await fetchWithRetry(
+      `https://gemini.google.com${prefix}/app`,
+      { method: "GET", headers },
+      { maxRetries: 2, timeoutMs: 12000 }
     );
+    const html = await res.text();
+    const blMatch = html.match(/"cfb2h":"([^"]+)"/);
+    const snMatch = html.match(/"SNlM0e":"([^"]+)"/);
 
-    req.on("timeout", () => {
-      req.destroy();
-      logger.warn("Gemini session info request timed out");
-      resolve({ bl: "boq_assistant-bard-web-server_20260827.05_p0", sn: "" });
-    });
+    const bl = blMatch ? blMatch[1] : fallbackBl;
+    const sn = snMatch ? snMatch[1] : "";
 
-    req.on("error", (e) => {
-      logger.error({ err: e }, "Failed to fetch Gemini session info");
-      resolve({ bl: "boq_assistant-bard-web-server_20260827.05_p0", sn: "" });
-    });
-
-    req.end();
-  });
+    if (sn) {
+      cachedSessionInfo.set(cacheKey, { bl, sn, timestamp: now });
+    }
+    return { bl, sn };
+  } catch (e) {
+    logger.error({ err: e }, "Failed to fetch Gemini session info");
+    return { bl: fallbackBl, sn: "" };
+  }
 }
 
 export async function testGeminiConnection(cookieStr: string, sapisid: string | null): Promise<boolean> {

@@ -1,7 +1,7 @@
-import https from "https";
 import { loadCookie, makeSapisidHash } from "./cookie.js";
 import { AUTH_USER } from "../config.js";
 import { logger } from "../logger.js";
+import { fetchWithRetry } from "./fetchWithRetry.js";
 
 export interface ModelConfig {
   mode: number;
@@ -152,58 +152,31 @@ async function fetchModelsFromGemini(
   cookieStr: string,
   sapisid: string | null
 ): Promise<Record<string, ModelConfig> | null> {
-  return new Promise((resolve) => {
-    try {
-      const prefix = AUTH_USER ? `/u/${AUTH_USER}` : "";
-      const headers: Record<string, string> = {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        Cookie: cookieStr,
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9"
-      };
-      if (sapisid) {
-        headers["Authorization"] = makeSapisidHash(sapisid);
-      }
-
-      const req = https.request(
-        {
-          hostname: "gemini.google.com",
-          port: 443,
-          path: `${prefix}/app`,
-          method: "GET",
-          headers,
-          maxHeaderSize: 65536,
-          timeout: 8000
-        },
-        (res) => {
-          let html = "";
-          res.on("data", (chunk) => (html += chunk));
-          res.on("end", () => {
-            const parsed = parseModelsFromHtml(html);
-            if (parsed && Object.keys(parsed).length > 0) {
-              resolve({ ...FALLBACK_MODELS, ...parsed });
-            } else {
-              resolve(FALLBACK_MODELS);
-            }
-          });
-        }
-      );
-
-      req.on("timeout", () => {
-        req.destroy();
-        resolve(FALLBACK_MODELS);
-      });
-
-      req.on("error", () => {
-        resolve(FALLBACK_MODELS);
-      });
-
-      req.end();
-    } catch {
-      resolve(FALLBACK_MODELS);
+  try {
+    const prefix = AUTH_USER ? `/u/${AUTH_USER}` : "";
+    const headers: Record<string, string> = {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      Cookie: cookieStr
+    };
+    if (sapisid) {
+      headers["Authorization"] = makeSapisidHash(sapisid);
     }
-  });
+
+    const res = await fetchWithRetry(
+      `https://gemini.google.com${prefix}/app`,
+      { method: "GET", headers },
+      { maxRetries: 2, timeoutMs: 12000 }
+    );
+    const html = await res.text();
+    const parsed = parseModelsFromHtml(html);
+    if (parsed && Object.keys(parsed).length > 0) {
+      return { ...FALLBACK_MODELS, ...parsed };
+    }
+    return FALLBACK_MODELS;
+  } catch {
+    return FALLBACK_MODELS;
+  }
 }
 
 function parseModelsFromHtml(html: string): Record<string, ModelConfig> | null {
