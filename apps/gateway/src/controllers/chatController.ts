@@ -11,7 +11,13 @@ import {
   cleanJsonResponse
 } from "../utils/parsers.js";
 import { geminiCircuitBreaker } from "../utils/circuitBreaker.js";
-import { normalizeError } from "../utils/errors.js";
+import {
+  normalizeError,
+  isUpstreamRateLimitMessage,
+  UpstreamEmptyResponseError,
+  UpstreamRateLimitError,
+  ClientAbortedError
+} from "../utils/errors.js";
 import { chatCompletionSchema } from "../utils/schemas.js";
 import { handleChatStream, handleChatStreamWithTools } from "../services/streamService.js";
 import { countTokens } from "../utils/tokens.js";
@@ -88,13 +94,6 @@ export async function chatCompletionController(request: FastifyRequest, reply: F
   const includeUsage = req.stream_options?.include_usage === true;
 
   if (stream) {
-    reply.raw.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-      "Access-Control-Allow-Origin": "*"
-    });
-
     if (!req.tools) {
       await handleChatStream(
         prompt,
@@ -138,7 +137,14 @@ export async function chatCompletionController(request: FastifyRequest, reply: F
         auth.temporaryChats
       )
     );
+    if (abortController.signal.aborted) {
+      throw new ClientAbortedError();
+    }
     const text = extractResponseText(raw);
+    if (isUpstreamRateLimitMessage(text)) {
+      throw new UpstreamRateLimitError();
+    }
+
     let cleanText = text;
     let toolCalls: any = null;
 
@@ -155,6 +161,17 @@ export async function chatCompletionController(request: FastifyRequest, reply: F
     if ((req.response_format?.type === "json_object" || req.response_format?.type === "json_schema") && contentText) {
       contentText = cleanJsonResponse(contentText);
     }
+
+    if (isUpstreamRateLimitMessage(contentText)) {
+      throw new UpstreamRateLimitError();
+    }
+
+    const hasAssistantContent = Boolean(contentText && contentText.trim());
+    const hasToolCalls = Boolean(toolCalls && toolCalls.length > 0);
+    if (!hasAssistantContent && !hasToolCalls) {
+      throw new UpstreamEmptyResponseError();
+    }
+
     const msg: any = { role: "assistant", content: contentText || null };
     if (toolCalls) {
       msg.tool_calls = toolCalls;
@@ -187,6 +204,10 @@ export async function chatCompletionController(request: FastifyRequest, reply: F
   } catch (e) {
     const durationMs = Date.now() - startTime;
     const normalized = normalizeError(e);
+    logger.warn(
+      { status: normalized.status, model: modelName, durationMs, code: normalized.body?.error?.code, err: e },
+      "Chat completion request failed"
+    );
     await logUsage(auth.projectId!, auth.apiKeyId!, modelName, countTokens(prompt), 0, durationMs, normalized.status);
     return reply.status(normalized.status).send(normalized.body);
   }

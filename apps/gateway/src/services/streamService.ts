@@ -14,7 +14,114 @@ import {
   ToolDefinition
 } from "../utils/parsers.js";
 import { logger } from "../logger.js";
-import { normalizeError } from "../utils/errors.js";
+import { invalidateGeminiSessionCache } from "../utils/cookie.js";
+import {
+  normalizeError,
+  isUpstreamRateLimitMessage,
+  isPotentialRateLimitPrefix,
+  UpstreamEmptyResponseError,
+  UpstreamRateLimitError,
+  ClientAbortedError
+} from "../utils/errors.js";
+
+function ensureSseHeaders(reply: FastifyReply) {
+  if (!reply.raw.headersSent && reply.raw.writable && !reply.raw.writableEnded) {
+    reply.raw.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "Access-Control-Allow-Origin": "*"
+    });
+  }
+}
+
+function writeSseChunk(reply: FastifyReply, payload: unknown) {
+  if (reply.raw.writable && !reply.raw.writableEnded) {
+    ensureSseHeaders(reply);
+    reply.raw.write(`data: ${JSON.stringify(payload)}\n\n`);
+  }
+}
+
+async function handleStreamError(
+  e: unknown,
+  reply: FastifyReply,
+  cid: string,
+  modelName: string,
+  prompt: string,
+  auth: AuthResult,
+  startTime: number,
+  contextLabel: string
+) {
+  const normalized = normalizeError(e);
+  const durationMs = Date.now() - startTime;
+  logger.warn(
+    { status: normalized.status, model: modelName, durationMs, code: normalized.body?.error?.code, err: e },
+    contextLabel
+  );
+
+  if (reply.raw.writable && !reply.raw.writableEnded) {
+    if (!reply.raw.headersSent) {
+      reply.raw.writeHead(normalized.status, {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*"
+      });
+      reply.raw.end(JSON.stringify(normalized.body));
+    } else {
+      if (normalized.status !== 499) {
+        const errChunk = {
+          id: cid,
+          object: "chat.completion.chunk",
+          created: Math.floor(Date.now() / 1000),
+          model: modelName,
+          choices: [
+            { index: 0, delta: { content: `[Gateway Error: ${normalized.body.error.message}]` }, finish_reason: "stop" }
+          ]
+        };
+        reply.raw.write(`data: ${JSON.stringify(errChunk)}\n\n`);
+        reply.raw.write("data: [DONE]\n\n");
+      }
+      reply.raw.end();
+    }
+  }
+
+  await logUsage(auth.projectId!, auth.apiKeyId!, modelName, countTokens(prompt), 0, durationMs, normalized.status);
+}
+
+const MAX_EMPTY_STREAM_RETRIES = 2;
+
+async function retryOnEmptyUpstream(
+  modelName: string,
+  reply: FastifyReply,
+  signal: AbortSignal | undefined,
+  fn: () => Promise<void>
+): Promise<void> {
+  for (let attempt = 0; attempt <= MAX_EMPTY_STREAM_RETRIES; attempt++) {
+    try {
+      await fn();
+      return;
+    } catch (e: unknown) {
+      const isEmpty = e instanceof UpstreamEmptyResponseError;
+      const canRetry =
+        isEmpty &&
+        attempt < MAX_EMPTY_STREAM_RETRIES &&
+        !reply.raw.headersSent &&
+        !signal?.aborted &&
+        reply.raw.writable &&
+        !reply.raw.writableEnded;
+
+      if (!canRetry) {
+        throw e;
+      }
+
+      invalidateGeminiSessionCache();
+      logger.warn(
+        { attempt: attempt + 1, maxRetries: MAX_EMPTY_STREAM_RETRIES, model: modelName },
+        "Upstream stream returned empty response, invalidating session cache and retrying..."
+      );
+      await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
+    }
+  }
+}
 
 export async function handleChatStream(
   prompt: string,
@@ -29,180 +136,194 @@ export async function handleChatStream(
   includeUsage = false
 ) {
   const customCookie = auth.customCookie;
-  let responseText = "";
 
   try {
-    const { url, headers, body } = await buildGeminiRequest(
-      prompt,
-      cfg.mode,
-      cfg.think,
-      customCookie,
-      fileRefs,
-      auth.temporaryChats
-    );
+    await retryOnEmptyUpstream(modelName, reply, signal, async () => {
+      let responseText = "";
+      const { url, headers, body } = await buildGeminiRequest(
+        prompt,
+        cfg.mode,
+        cfg.think,
+        customCookie,
+        fileRefs,
+        auth.temporaryChats
+      );
 
-    const response = await geminiCircuitBreaker.execute(async () => {
-      return await fetchWithRetry(url, {
-        method: "POST",
-        headers,
-        body,
-        keepalive: true,
-        signal
+      const response = await geminiCircuitBreaker.execute(async () => {
+        return await fetchWithRetry(url, {
+          method: "POST",
+          headers,
+          body,
+          keepalive: true,
+          signal
+        });
       });
-    });
 
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error("No response body stream");
-    }
-
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let prevCleanedText = "";
-    let isCompleted = false;
-
-    while (!isCompleted) {
-      if (signal?.aborted || reply.raw.writableEnded || !reply.raw.writable) {
-        break;
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error("No response body stream");
       }
 
-      const { done, value } = await reader.read();
-      if (done) break;
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let prevCleanedText = "";
+      let streamedLength = 0;
+      let isCompleted = false;
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-
-      for (const line of lines) {
-        // Check for Google End-Of-Stream markers
-        if (line.includes('["di",') || line.includes('["e",') || line.includes('"af.httprm"')) {
-          isCompleted = true;
+      while (!isCompleted) {
+        if (signal?.aborted) {
+          throw new ClientAbortedError();
+        }
+        if (reply.raw.writableEnded || !reply.raw.writable) {
           break;
         }
 
-        if (!line.includes('"wrb.fr"') || line.length < 50) continue;
-        try {
-          const innerStr = JSON.parse(line)[0][2];
-          if (!innerStr || innerStr.length < 20) continue;
-          const inner = JSON.parse(innerStr);
-          if (Array.isArray(inner)) {
-            const candidates = [inner[4], inner[0]].filter(Boolean);
-            for (const candidate of candidates) {
-              if (Array.isArray(candidate)) {
-                let fullText = "";
-                let candidateFinished = false;
+        const { done, value } = await reader.read();
+        if (done) break;
 
-                for (const part of candidate) {
-                  if (Array.isArray(part)) {
-                    if (Array.isArray(part[1])) {
-                      fullText += part[1].filter((t: unknown) => typeof t === "string").join("");
-                    }
-                    const statusArr = part[8];
-                    if (Array.isArray(statusArr) && statusArr.includes(2)) {
-                      candidateFinished = true;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          // Check for Google End-Of-Stream markers
+          if (line.includes('["di",') || line.includes('["e",') || line.includes('"af.httprm"')) {
+            isCompleted = true;
+            break;
+          }
+
+          if (!line.includes('"wrb.fr"') || line.length < 50) continue;
+          try {
+            const innerStr = JSON.parse(line)[0][2];
+            if (!innerStr || innerStr.length < 20) continue;
+            const inner = JSON.parse(innerStr);
+            if (Array.isArray(inner)) {
+              const candidates = [inner[4], inner[0]].filter(Boolean);
+              for (const candidate of candidates) {
+                if (Array.isArray(candidate)) {
+                  let fullText = "";
+                  let candidateFinished = false;
+
+                  for (const part of candidate) {
+                    if (Array.isArray(part)) {
+                      if (Array.isArray(part[1])) {
+                        fullText += part[1].filter((t: unknown) => typeof t === "string").join("");
+                      }
+                      const statusArr = part[8];
+                      if (Array.isArray(statusArr) && statusArr.includes(2)) {
+                        candidateFinished = true;
+                      }
                     }
                   }
-                }
 
-                if (fullText.trim()) {
-                  const cleanedText = cleanGeminiText(fullText);
-                  if (cleanedText.length > prevCleanedText.length) {
-                    const delta = cleanedText.substring(prevCleanedText.length);
-                    responseText += delta;
-                    const chunk = {
-                      id: cid,
-                      object: "chat.completion.chunk",
-                      created: Math.floor(Date.now() / 1000),
-                      model: modelName,
-                      choices: [{ index: 0, delta: { content: delta }, finish_reason: null }]
-                    };
-                    if (reply.raw.writable && !reply.raw.writableEnded) {
-                      reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
+                  if (fullText.trim()) {
+                    const cleanedText = cleanGeminiText(fullText);
+                    if (isUpstreamRateLimitMessage(cleanedText)) {
+                      throw new UpstreamRateLimitError();
                     }
-                    prevCleanedText = cleanedText;
-                  }
 
-                  if (candidateFinished) {
-                    isCompleted = true;
+                    if (cleanedText.length > prevCleanedText.length) {
+                      responseText = cleanedText;
+                      prevCleanedText = cleanedText;
+
+                      if (!isPotentialRateLimitPrefix(cleanedText)) {
+                        const delta = cleanedText.substring(streamedLength);
+                        if (delta) {
+                          const chunk = {
+                            id: cid,
+                            object: "chat.completion.chunk",
+                            created: Math.floor(Date.now() / 1000),
+                            model: modelName,
+                            choices: [{ index: 0, delta: { content: delta }, finish_reason: null }]
+                          };
+                          writeSseChunk(reply, chunk);
+                          streamedLength = cleanedText.length;
+                        }
+                      }
+                    }
+
+                    if (candidateFinished) {
+                      isCompleted = true;
+                    }
+                    break;
                   }
-                  break;
                 }
               }
             }
+          } catch (parseErr) {
+            if (parseErr instanceof UpstreamRateLimitError) {
+              throw parseErr;
+            }
           }
-        } catch {}
 
-        if (isCompleted) break;
+          if (isCompleted) break;
+        }
       }
-    }
 
-    try {
-      reader.cancel();
-    } catch {}
+      try {
+        reader.cancel();
+      } catch {}
 
-    const promptTokens = countTokens(prompt);
-    const completionTokens = countTokens(responseText);
+      if (signal?.aborted) {
+        throw new ClientAbortedError();
+      }
+      if (isUpstreamRateLimitMessage(responseText)) {
+        throw new UpstreamRateLimitError();
+      }
+      if (!responseText.trim()) {
+        throw new UpstreamEmptyResponseError();
+      }
 
-    if (reply.raw.writable && !reply.raw.writableEnded) {
-      const finalChunk = {
-        id: cid,
-        object: "chat.completion.chunk",
-        created: Math.floor(Date.now() / 1000),
-        model: modelName,
-        choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
-      };
-      reply.raw.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
+      const promptTokens = countTokens(prompt);
+      const completionTokens = countTokens(responseText);
 
-      if (includeUsage) {
-        const usageChunk = {
+      if (reply.raw.writable && !reply.raw.writableEnded) {
+        if (responseText.length > streamedLength) {
+          const delta = responseText.substring(streamedLength);
+          const chunk = {
+            id: cid,
+            object: "chat.completion.chunk",
+            created: Math.floor(Date.now() / 1000),
+            model: modelName,
+            choices: [{ index: 0, delta: { content: delta }, finish_reason: null }]
+          };
+          writeSseChunk(reply, chunk);
+        }
+
+        const finalChunk = {
           id: cid,
           object: "chat.completion.chunk",
           created: Math.floor(Date.now() / 1000),
           model: modelName,
-          choices: [],
-          usage: {
-            prompt_tokens: promptTokens,
-            completion_tokens: completionTokens,
-            total_tokens: promptTokens + completionTokens
-          }
+          choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
         };
-        reply.raw.write(`data: ${JSON.stringify(usageChunk)}\n\n`);
+        writeSseChunk(reply, finalChunk);
+
+        if (includeUsage) {
+          const usageChunk = {
+            id: cid,
+            object: "chat.completion.chunk",
+            created: Math.floor(Date.now() / 1000),
+            model: modelName,
+            choices: [],
+            usage: {
+              prompt_tokens: promptTokens,
+              completion_tokens: completionTokens,
+              total_tokens: promptTokens + completionTokens
+            }
+          };
+          writeSseChunk(reply, usageChunk);
+        }
+
+        reply.raw.write("data: [DONE]\n\n");
+        reply.raw.end();
       }
 
-      reply.raw.write("data: [DONE]\n\n");
-      reply.raw.end();
-    }
-
-    const durationMs = Date.now() - startTime;
-    await logUsage(auth.projectId!, auth.apiKeyId!, modelName, promptTokens, completionTokens, durationMs, 200);
+      const durationMs = Date.now() - startTime;
+      await logUsage(auth.projectId!, auth.apiKeyId!, modelName, promptTokens, completionTokens, durationMs, 200);
+    });
   } catch (e: unknown) {
-    logger.error({ err: e }, "Streaming error");
-    const normalized = normalizeError(e);
-    if (reply.raw.writable && !reply.raw.writableEnded) {
-      const errChunk = {
-        id: cid,
-        object: "chat.completion.chunk",
-        created: Math.floor(Date.now() / 1000),
-        model: modelName,
-        choices: [
-          { index: 0, delta: { content: `[Gateway Error: ${normalized.body.error.message}]` }, finish_reason: "stop" }
-        ]
-      };
-      reply.raw.write(`data: ${JSON.stringify(errChunk)}\n\n`);
-      reply.raw.write("data: [DONE]\n\n");
-      reply.raw.end();
-    }
-
-    const durationMs = Date.now() - startTime;
-    await logUsage(
-      auth.projectId!,
-      auth.apiKeyId!,
-      modelName,
-      Math.floor(prompt.length / 4),
-      0,
-      durationMs,
-      normalized.status
-    );
+    await handleStreamError(e, reply, cid, modelName, prompt, auth, startTime, "Streaming error");
   }
 }
 
@@ -220,9 +341,6 @@ export async function handleChatStreamWithTools(
   tools?: ToolDefinition[]
 ) {
   const customCookie = auth.customCookie;
-  let responseText = "";
-  let streamedLength = 0;
-  let toolSuspended = false;
   const hasAttemptCompletion = Boolean(
     tools?.some((t) => {
       const name = t.type === "function" ? t.function?.name || t.name : t.name;
@@ -231,234 +349,238 @@ export async function handleChatStreamWithTools(
   );
 
   try {
-    const { url, headers, body } = await buildGeminiRequest(
-      prompt,
-      cfg.mode,
-      cfg.think,
-      customCookie,
-      fileRefs,
-      auth.temporaryChats
-    );
-    const response = await geminiCircuitBreaker.execute(async () => {
-      return await fetchWithRetry(url, {
-        method: "POST",
-        headers,
-        body,
-        keepalive: true,
-        signal
+    await retryOnEmptyUpstream(modelName, reply, signal, async () => {
+      let responseText = "";
+      let streamedLength = 0;
+      let toolSuspended = false;
+      const { url, headers, body } = await buildGeminiRequest(
+        prompt,
+        cfg.mode,
+        cfg.think,
+        customCookie,
+        fileRefs,
+        auth.temporaryChats
+      );
+      const response = await geminiCircuitBreaker.execute(async () => {
+        return await fetchWithRetry(url, {
+          method: "POST",
+          headers,
+          body,
+          keepalive: true,
+          signal
+        });
       });
-    });
 
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error("No response body stream");
-    }
-
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let isCompleted = false;
-
-    while (!isCompleted) {
-      if (signal?.aborted || reply.raw.writableEnded || !reply.raw.writable) {
-        break;
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error("No response body stream");
       }
 
-      const { done, value } = await reader.read();
-      if (done) break;
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let isCompleted = false;
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-
-      for (const line of lines) {
-        if (line.includes('["di",') || line.includes('["e",') || line.includes('"af.httprm"')) {
-          isCompleted = true;
+      while (!isCompleted) {
+        if (signal?.aborted) {
+          throw new ClientAbortedError();
+        }
+        if (reply.raw.writableEnded || !reply.raw.writable) {
           break;
         }
 
-        if (!line.includes('"wrb.fr"') || line.length < 50) continue;
-        try {
-          const parsedLine = JSON.parse(line);
-          const innerStr = parsedLine?.[0]?.[2];
-          if (!innerStr || typeof innerStr !== "string") continue;
+        const { done, value } = await reader.read();
+        if (done) break;
 
-          const inner = JSON.parse(innerStr);
-          if (Array.isArray(inner)) {
-            const candidates = [inner[4], inner[0]].filter(Boolean);
-            for (const candidate of candidates) {
-              if (Array.isArray(candidate)) {
-                let fullText = "";
-                let candidateFinished = false;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
 
-                for (const part of candidate) {
-                  if (Array.isArray(part)) {
-                    if (Array.isArray(part[1])) {
-                      fullText += part[1].filter((t: unknown) => typeof t === "string").join("");
-                    }
-                    const statusArr = part[8];
-                    if (Array.isArray(statusArr) && statusArr.includes(2)) {
-                      candidateFinished = true;
-                    }
-                  }
-                }
+        for (const line of lines) {
+          if (line.includes('["di",') || line.includes('["e",') || line.includes('"af.httprm"')) {
+            isCompleted = true;
+            break;
+          }
 
-                if (fullText.trim()) {
-                  const cleanedText = cleanGeminiText(fullText);
-                  if (cleanedText.length > responseText.length) {
-                    responseText = cleanedText;
+          if (!line.includes('"wrb.fr"') || line.length < 50) continue;
+          try {
+            const parsedLine = JSON.parse(line);
+            const innerStr = parsedLine?.[0]?.[2];
+            if (!innerStr || typeof innerStr !== "string") continue;
 
-                    if (!toolSuspended) {
-                      if (
-                        responseText.includes("```tool") ||
-                        responseText.includes("```json") ||
-                        responseText.includes("```javascript")
-                      ) {
-                        toolSuspended = true;
-                      } else if (responseText.trim().startsWith("{") && responseText.trim().length < 150) {
-                        toolSuspended = true;
+            const inner = JSON.parse(innerStr);
+            if (Array.isArray(inner)) {
+              const candidates = [inner[4], inner[0]].filter(Boolean);
+              for (const candidate of candidates) {
+                if (Array.isArray(candidate)) {
+                  let fullText = "";
+                  let candidateFinished = false;
+
+                  for (const part of candidate) {
+                    if (Array.isArray(part)) {
+                      if (Array.isArray(part[1])) {
+                        fullText += part[1].filter((t: unknown) => typeof t === "string").join("");
                       }
-                    }
-
-                    if (!toolSuspended && !hasAttemptCompletion) {
-                      const delta = responseText.substring(streamedLength);
-                      if (delta && reply.raw.writable && !reply.raw.writableEnded) {
-                        const chunk = {
-                          id: cid,
-                          object: "chat.completion.chunk",
-                          created: Math.floor(Date.now() / 1000),
-                          model: modelName,
-                          choices: [{ index: 0, delta: { content: delta }, finish_reason: null }]
-                        };
-                        reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
-                        streamedLength = responseText.length;
+                      const statusArr = part[8];
+                      if (Array.isArray(statusArr) && statusArr.includes(2)) {
+                        candidateFinished = true;
                       }
                     }
                   }
 
-                  if (candidateFinished) {
-                    isCompleted = true;
+                  if (fullText.trim()) {
+                    const cleanedText = cleanGeminiText(fullText);
+                    if (isUpstreamRateLimitMessage(cleanedText)) {
+                      throw new UpstreamRateLimitError();
+                    }
+
+                    if (cleanedText.length > responseText.length) {
+                      responseText = cleanedText;
+
+                      if (!toolSuspended) {
+                        if (
+                          responseText.includes("```tool") ||
+                          responseText.includes("```json") ||
+                          responseText.includes("```javascript")
+                        ) {
+                          toolSuspended = true;
+                        } else if (responseText.trim().startsWith("{") && responseText.trim().length < 150) {
+                          toolSuspended = true;
+                        }
+                      }
+
+                      if (!toolSuspended && !hasAttemptCompletion && !isPotentialRateLimitPrefix(responseText)) {
+                        const delta = responseText.substring(streamedLength);
+                        if (delta) {
+                          const chunk = {
+                            id: cid,
+                            object: "chat.completion.chunk",
+                            created: Math.floor(Date.now() / 1000),
+                            model: modelName,
+                            choices: [{ index: 0, delta: { content: delta }, finish_reason: null }]
+                          };
+                          writeSseChunk(reply, chunk);
+                          streamedLength = responseText.length;
+                        }
+                      }
+                    }
+
+                    if (candidateFinished) {
+                      isCompleted = true;
+                    }
+                    break;
                   }
-                  break;
                 }
               }
             }
-          }
-        } catch {}
-
-        if (isCompleted) break;
-      }
-    }
-
-    try {
-      reader.cancel();
-    } catch {}
-
-    const parsed = parseToolCalls(responseText);
-    const cleanText = parsed.cleanText;
-    const toolCalls = applyRooCodeToolFallback(cleanText, parsed.toolCalls, tools);
-    const fallbackUsed = !parsed.toolCalls && Boolean(toolCalls);
-
-    const promptTokens = countTokens(prompt);
-    const completionTokens = countTokens(cleanText);
-
-    if (reply.raw.writable && !reply.raw.writableEnded) {
-      if (!fallbackUsed && cleanText.length > streamedLength) {
-        const delta = cleanText.substring(streamedLength);
-        const chunk = {
-          id: cid,
-          object: "chat.completion.chunk",
-          created: Math.floor(Date.now() / 1000),
-          model: modelName,
-          choices: [{ index: 0, delta: { content: delta }, finish_reason: null }]
-        };
-        reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
-      }
-
-      if (toolCalls) {
-        const chunk = {
-          id: cid,
-          object: "chat.completion.chunk",
-          created: Math.floor(Date.now() / 1000),
-          model: modelName,
-          choices: [
-            {
-              index: 0,
-              delta: {
-                tool_calls: toolCalls.map((tc: ToolCallResult, idx: number) => ({
-                  index: idx,
-                  id: tc.id,
-                  type: "function",
-                  function: {
-                    name: tc.function.name,
-                    arguments: tc.function.arguments
-                  }
-                }))
-              },
-              finish_reason: "tool_calls"
+          } catch (parseErr) {
+            if (parseErr instanceof UpstreamRateLimitError) {
+              throw parseErr;
             }
-          ]
-        };
-        reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
-      } else {
-        const chunk = {
-          id: cid,
-          object: "chat.completion.chunk",
-          created: Math.floor(Date.now() / 1000),
-          model: modelName,
-          choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
-        };
-        reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
-      }
-
-      if (includeUsage) {
-        const usageChunk = {
-          id: cid,
-          object: "chat.completion.chunk",
-          created: Math.floor(Date.now() / 1000),
-          model: modelName,
-          choices: [],
-          usage: {
-            prompt_tokens: promptTokens,
-            completion_tokens: completionTokens,
-            total_tokens: promptTokens + completionTokens
           }
-        };
-        reply.raw.write(`data: ${JSON.stringify(usageChunk)}\n\n`);
+
+          if (isCompleted) break;
+        }
       }
 
-      reply.raw.write("data: [DONE]\n\n");
-      reply.raw.end();
-    }
+      try {
+        reader.cancel();
+      } catch {}
 
-    const durationMs = Date.now() - startTime;
-    await logUsage(auth.projectId!, auth.apiKeyId!, modelName, promptTokens, completionTokens, durationMs, 200);
+      if (signal?.aborted) {
+        throw new ClientAbortedError();
+      }
+      if (isUpstreamRateLimitMessage(responseText)) {
+        throw new UpstreamRateLimitError();
+      }
+
+      const parsed = parseToolCalls(responseText);
+      const cleanText = parsed.cleanText;
+      const toolCalls = applyRooCodeToolFallback(cleanText, parsed.toolCalls, tools);
+      const fallbackUsed = !parsed.toolCalls && Boolean(toolCalls);
+
+      if (isUpstreamRateLimitMessage(cleanText)) {
+        throw new UpstreamRateLimitError();
+      }
+      if (!cleanText.trim() && (!toolCalls || toolCalls.length === 0)) {
+        throw new UpstreamEmptyResponseError();
+      }
+
+      const promptTokens = countTokens(prompt);
+      const completionTokens = countTokens(cleanText);
+
+      if (reply.raw.writable && !reply.raw.writableEnded) {
+        if (!fallbackUsed && cleanText.length > streamedLength) {
+          const delta = cleanText.substring(streamedLength);
+          const chunk = {
+            id: cid,
+            object: "chat.completion.chunk",
+            created: Math.floor(Date.now() / 1000),
+            model: modelName,
+            choices: [{ index: 0, delta: { content: delta }, finish_reason: null }]
+          };
+          writeSseChunk(reply, chunk);
+        }
+
+        if (toolCalls) {
+          const chunk = {
+            id: cid,
+            object: "chat.completion.chunk",
+            created: Math.floor(Date.now() / 1000),
+            model: modelName,
+            choices: [
+              {
+                index: 0,
+                delta: {
+                  tool_calls: toolCalls.map((tc: ToolCallResult, idx: number) => ({
+                    index: idx,
+                    id: tc.id,
+                    type: "function",
+                    function: {
+                      name: tc.function.name,
+                      arguments: tc.function.arguments
+                    }
+                  }))
+                },
+                finish_reason: "tool_calls"
+              }
+            ]
+          };
+          writeSseChunk(reply, chunk);
+        } else {
+          const chunk = {
+            id: cid,
+            object: "chat.completion.chunk",
+            created: Math.floor(Date.now() / 1000),
+            model: modelName,
+            choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
+          };
+          writeSseChunk(reply, chunk);
+        }
+
+        if (includeUsage) {
+          const usageChunk = {
+            id: cid,
+            object: "chat.completion.chunk",
+            created: Math.floor(Date.now() / 1000),
+            model: modelName,
+            choices: [],
+            usage: {
+              prompt_tokens: promptTokens,
+              completion_tokens: completionTokens,
+              total_tokens: promptTokens + completionTokens
+            }
+          };
+          writeSseChunk(reply, usageChunk);
+        }
+
+        reply.raw.write("data: [DONE]\n\n");
+        reply.raw.end();
+      }
+
+      const durationMs = Date.now() - startTime;
+      await logUsage(auth.projectId!, auth.apiKeyId!, modelName, promptTokens, completionTokens, durationMs, 200);
+    });
   } catch (e: unknown) {
-    logger.error({ err: e }, "Streaming with tools error");
-    const normalized = normalizeError(e);
-    if (reply.raw.writable && !reply.raw.writableEnded) {
-      const errChunk = {
-        id: cid,
-        object: "chat.completion.chunk",
-        created: Math.floor(Date.now() / 1000),
-        model: modelName,
-        choices: [
-          { index: 0, delta: { content: `[Gateway Error: ${normalized.body.error.message}]` }, finish_reason: "stop" }
-        ]
-      };
-      reply.raw.write(`data: ${JSON.stringify(errChunk)}\n\n`);
-      reply.raw.write("data: [DONE]\n\n");
-      reply.raw.end();
-    }
-
-    const durationMs = Date.now() - startTime;
-    await logUsage(
-      auth.projectId!,
-      auth.apiKeyId!,
-      modelName,
-      Math.floor(prompt.length / 4),
-      0,
-      durationMs,
-      normalized.status
-    );
+    await handleStreamError(e, reply, cid, modelName, prompt, auth, startTime, "Streaming with tools error");
   }
 }

@@ -28,7 +28,7 @@ export function extractResponseText(raw: string): string {
     const line = raw.substring(pos, nextNL);
     pos = nextNL + 1;
 
-    if (line.length < 200 || !line.includes('"wrb.fr"')) continue;
+    if (line.length < 50 || !line.includes('"wrb.fr"')) continue;
 
     try {
       const parsedLine = JSON.parse(line);

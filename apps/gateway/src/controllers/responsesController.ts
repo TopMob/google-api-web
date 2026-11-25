@@ -5,7 +5,13 @@ import { verifyApiKey, logUsage } from "../services/auth.js";
 import { geminiStreamGenerate } from "../services/gemini.js";
 import { extractResponseText, parseToolCalls, messagesToPrompt } from "../utils/parsers.js";
 import { geminiCircuitBreaker } from "../utils/circuitBreaker.js";
-import { normalizeError } from "../utils/errors.js";
+import {
+  normalizeError,
+  isUpstreamRateLimitMessage,
+  UpstreamEmptyResponseError,
+  UpstreamRateLimitError,
+  ClientAbortedError
+} from "../utils/errors.js";
 import { responsesApiSchema } from "../utils/schemas.js";
 import { countTokens } from "../utils/tokens.js";
 import { extractImagesFromMessages, uploadAllImages } from "../services/multimodal.js";
@@ -140,7 +146,15 @@ export async function responsesApiController(request: FastifyRequest, reply: Fas
         auth.temporaryChats
       )
     );
+    if (abortController.signal.aborted) {
+      throw new ClientAbortedError();
+    }
+
     const text = extractResponseText(raw);
+    if (isUpstreamRateLimitMessage(text)) {
+      throw new UpstreamRateLimitError();
+    }
+
     let cleanText = text;
     let toolCalls: any = null;
 
@@ -148,6 +162,13 @@ export async function responsesApiController(request: FastifyRequest, reply: Fas
       const parsed = parseToolCalls(text);
       cleanText = parsed.cleanText;
       toolCalls = parsed.toolCalls;
+    }
+
+    if (isUpstreamRateLimitMessage(cleanText)) {
+      throw new UpstreamRateLimitError();
+    }
+    if (!cleanText.trim() && (!toolCalls || toolCalls.length === 0)) {
+      throw new UpstreamEmptyResponseError();
     }
 
     const rid = `resp_${crypto.randomBytes(8).toString("hex")}`;

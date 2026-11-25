@@ -1,8 +1,16 @@
 import crypto from "crypto";
 import { config, GEMINI_BL, RETRY_ATTEMPTS, RETRY_DELAY_SEC, TEMPORARY_CHATS } from "../config.js";
 import { store } from "../db.js";
-import { loadCookie, makeSapisidHash, parseRawCookieString, getGeminiSessionInfo } from "../utils/cookie.js";
+import {
+  loadCookie,
+  makeSapisidHash,
+  parseRawCookieString,
+  getGeminiSessionInfo,
+  invalidateGeminiSessionCache
+} from "../utils/cookie.js";
 import { fetchWithRetry } from "../utils/fetchWithRetry.js";
+import { extractResponseText } from "../utils/parsers.js";
+import { logger } from "../logger.js";
 
 class GeminiPayloadBuilder {
   private payload: any[] = [];
@@ -145,79 +153,103 @@ export async function geminiStreamGenerate(
   fileRefs?: string[],
   temporaryChats = TEMPORARY_CHATS
 ): Promise<string> {
-  const { url, headers, body } = await buildGeminiRequest(
-    prompt,
-    modelId,
-    thinkMode,
-    customCookie,
-    fileRefs,
-    temporaryChats
-  );
+  const maxEmptyRetries = 2;
+  let lastOutput = "";
 
-  const response = await fetchWithRetry(
-    url,
-    {
-      method: "POST",
-      headers,
-      body,
-      keepalive: true,
-      signal
-    },
-    { maxRetries: RETRY_ATTEMPTS }
-  );
+  for (let emptyAttempt = 0; emptyAttempt <= maxEmptyRetries; emptyAttempt++) {
+    if (signal?.aborted) {
+      break;
+    }
 
-  const reader = response.body?.getReader();
-  if (!reader) {
-    return await response.text();
-  }
+    const { url, headers, body } = await buildGeminiRequest(
+      prompt,
+      modelId,
+      thinkMode,
+      customCookie,
+      fileRefs,
+      temporaryChats
+    );
 
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let fullOutput = "";
-  let isCompleted = false;
+    const response = await fetchWithRetry(
+      url,
+      {
+        method: "POST",
+        headers,
+        body,
+        keepalive: true,
+        signal
+      },
+      { maxRetries: RETRY_ATTEMPTS }
+    );
 
-  while (!isCompleted) {
-    const { done, value } = await reader.read();
-    if (done) break;
+    const reader = response.body?.getReader();
+    if (!reader) {
+      lastOutput = await response.text();
+    } else {
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let fullOutput = "";
+      let isCompleted = false;
 
-    const textChunk = decoder.decode(value, { stream: true });
-    fullOutput += textChunk;
-    buffer += textChunk;
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || "";
+      while (!isCompleted) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-    for (const line of lines) {
-      if (line.includes('["di",') || line.includes('["e",') || line.includes('"af.httprm"')) {
-        isCompleted = true;
-        break;
-      }
-      if (line.includes('"wrb.fr"') && line.length > 50) {
-        try {
-          const innerStr = JSON.parse(line)[0][2];
-          if (innerStr) {
-            const inner = JSON.parse(innerStr);
-            const candidates = [inner[4], inner[0]].filter(Boolean);
-            for (const candidate of candidates) {
-              if (Array.isArray(candidate)) {
-                for (const part of candidate) {
-                  if (Array.isArray(part) && Array.isArray(part[8]) && part[8].includes(2)) {
-                    isCompleted = true;
-                    break;
+        const textChunk = decoder.decode(value, { stream: true });
+        fullOutput += textChunk;
+        buffer += textChunk;
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.includes('["di",') || line.includes('["e",') || line.includes('"af.httprm"')) {
+            isCompleted = true;
+            break;
+          }
+          if (line.includes('"wrb.fr"') && line.length > 50) {
+            try {
+              const innerStr = JSON.parse(line)[0][2];
+              if (innerStr) {
+                const inner = JSON.parse(innerStr);
+                const candidates = [inner[4], inner[0]].filter(Boolean);
+                for (const candidate of candidates) {
+                  if (Array.isArray(candidate)) {
+                    for (const part of candidate) {
+                      if (Array.isArray(part) && Array.isArray(part[8]) && part[8].includes(2)) {
+                        isCompleted = true;
+                        break;
+                      }
+                    }
                   }
+                  if (isCompleted) break;
                 }
               }
-              if (isCompleted) break;
-            }
+            } catch {}
           }
-        } catch {}
+          if (isCompleted) break;
+        }
       }
-      if (isCompleted) break;
+
+      try {
+        reader.cancel();
+      } catch {}
+
+      lastOutput = fullOutput;
+    }
+
+    if (extractResponseText(lastOutput).trim() || signal?.aborted) {
+      return lastOutput;
+    }
+
+    if (emptyAttempt < maxEmptyRetries) {
+      invalidateGeminiSessionCache();
+      logger.warn(
+        { attempt: emptyAttempt + 1, maxEmptyRetries },
+        "Upstream returned empty response, invalidating session cache and retrying..."
+      );
+      await new Promise((resolve) => setTimeout(resolve, 300 * (emptyAttempt + 1)));
     }
   }
 
-  try {
-    reader.cancel();
-  } catch {}
-
-  return fullOutput;
+  return lastOutput;
 }

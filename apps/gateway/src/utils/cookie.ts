@@ -371,6 +371,10 @@ export function parseAndValidateCookie(key: string): { valid: boolean; data?: Ge
   };
 }
 
+export function invalidateGeminiSessionCache() {
+  cachedSessionInfo.clear();
+}
+
 /**
  * Fetch dynamic session info (BL build identifier, SNlM0e auth token, email, avatar) from Gemini app page.
  */

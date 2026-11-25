@@ -473,3 +473,224 @@ describe("Roo Code & IDE Tool Calling Adaptation", () => {
     expect(jsonSchemaPrompt).toContain("requires every response to end");
   });
 });
+
+function makeWrbLine(text: string, finished = true): string {
+  const inner = [null, null, null, null, [["rc_1", [text], null, null, null, null, null, null, finished ? [2] : []]]];
+  const outer = [["wrb.fr", null, JSON.stringify(inner)]];
+  return `${JSON.stringify(outer)}\n`;
+}
+
+function makeStreamResponse(chunks: Array<string | Error>): Response {
+  const encoder = new TextEncoder();
+  let index = 0;
+  const stream = new ReadableStream({
+    pull(controller) {
+      if (index >= chunks.length) {
+        controller.close();
+        return;
+      }
+      const chunk = chunks[index++];
+      if (chunk instanceof Error) {
+        controller.error(chunk);
+        return;
+      }
+      controller.enqueue(encoder.encode(chunk));
+    }
+  });
+  return new Response(stream, { status: 200 });
+}
+
+describe("Upstream Error, Empty Response & Rate-Limit Mapping", () => {
+  let app: ReturnType<typeof fastify>;
+  let addLogSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    app = fastify();
+    registerRoutes(app);
+    addLogSpy = vi.spyOn(store, "addUsageLog").mockImplementation(() => ({
+      id: "log_test",
+      project_id: "0",
+      api_key_id: "1",
+      model: "gemini-4-hydrogen",
+      prompt_tokens: 1,
+      completion_tokens: 0,
+      total_tokens: 1,
+      duration_ms: 1,
+      status_code: 200,
+      created_at: new Date().toISOString()
+    }));
+  });
+
+  afterEach(async () => {
+    addLogSpy.mockRestore();
+    vi.restoreAllMocks();
+    await app.close();
+  });
+
+  it("should return 502 and log 502 when non-streaming upstream returns empty content", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("/app")) {
+        return new Response('"SNlM0e":"test_sn"', { status: 200 });
+      }
+      return makeStreamResponse(['[["di",1]]\n']);
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      headers: { authorization: "Bearer sk-personal-gw" },
+      payload: {
+        model: "gemini-4-hydrogen",
+        stream: false,
+        messages: [{ role: "user", content: "hello" }]
+      }
+    });
+
+    expect(res.statusCode).toBe(502);
+    expect(res.json().error.code).toBe("empty_upstream_response");
+    expect(addLogSpy).toHaveBeenCalledWith(expect.objectContaining({ status_code: 502, completion_tokens: 0 }));
+  });
+
+  it("should return 502 and log 502 when streaming upstream returns empty content (with or without tools)", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("/app")) {
+        return new Response('"SNlM0e":"test_sn"', { status: 200 });
+      }
+      return makeStreamResponse(['[["di",1]]\n']);
+    });
+
+    const resNoTools = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      headers: { authorization: "Bearer sk-personal-gw" },
+      payload: {
+        model: "gemini-4-hydrogen",
+        stream: true,
+        messages: [{ role: "user", content: "hello" }]
+      }
+    });
+
+    expect(resNoTools.statusCode).toBe(502);
+    expect(resNoTools.json().error.code).toBe("empty_upstream_response");
+    expect(addLogSpy).toHaveBeenLastCalledWith(expect.objectContaining({ status_code: 502 }));
+
+    const resWithTools = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      headers: { authorization: "Bearer sk-personal-gw" },
+      payload: {
+        model: "gemini-4-hydrogen",
+        stream: true,
+        messages: [{ role: "user", content: "hello" }],
+        tools: [{ type: "function", function: { name: "attempt_completion", description: "Done", parameters: {} } }]
+      }
+    });
+
+    expect(resWithTools.statusCode).toBe(502);
+    expect(resWithTools.json().error.code).toBe("empty_upstream_response");
+    expect(addLogSpy).toHaveBeenLastCalledWith(expect.objectContaining({ status_code: 502 }));
+  });
+
+  it("should log 502 (not 200) when stream is interrupted mid-flight", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("/app")) {
+        return new Response('"SNlM0e":"test_sn"', { status: 200 });
+      }
+      return makeStreamResponse([makeWrbLine("Partial response", false), new Error("VPN connection reset")]);
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      headers: { authorization: "Bearer sk-personal-gw" },
+      payload: {
+        model: "gemini-4-hydrogen",
+        stream: true,
+        messages: [{ role: "user", content: "hello" }]
+      }
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain("Gateway Error");
+    expect(addLogSpy).toHaveBeenCalledWith(expect.objectContaining({ status_code: 502, completion_tokens: 0 }));
+  });
+
+  it("should return 429 and log 429 when upstream returns rate-limit text in non-streaming or chunked streaming", async () => {
+    const rateLimitText = "I couldn't do that because I'm getting a lot of requests right now. Please try again later.";
+    const part1 = "I couldn't do that because ";
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("/app")) {
+        return new Response('"SNlM0e":"test_sn"', { status: 200 });
+      }
+      return makeStreamResponse([makeWrbLine(part1, false), makeWrbLine(rateLimitText, true)]);
+    });
+
+    const resNonStream = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      headers: { authorization: "Bearer sk-personal-gw" },
+      payload: {
+        model: "gemini-4-hydrogen",
+        stream: false,
+        messages: [{ role: "user", content: "hello" }]
+      }
+    });
+
+    expect(resNonStream.statusCode).toBe(429);
+    expect(resNonStream.json().error.type).toBe("rate_limit_error");
+    expect(resNonStream.json().error.code).toBe("upstream_rate_limit");
+    expect(addLogSpy).toHaveBeenLastCalledWith(expect.objectContaining({ status_code: 429 }));
+
+    const resStream = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      headers: { authorization: "Bearer sk-personal-gw" },
+      payload: {
+        model: "gemini-4-hydrogen",
+        stream: true,
+        messages: [{ role: "user", content: "hello" }]
+      }
+    });
+
+    expect(resStream.statusCode).toBe(429);
+    expect(resStream.json().error.type).toBe("rate_limit_error");
+    expect(resStream.json().error.code).toBe("upstream_rate_limit");
+    expect(addLogSpy).toHaveBeenLastCalledWith(expect.objectContaining({ status_code: 429 }));
+  });
+
+  it("should automatically retry and recover with 200 when upstream returns empty on first attempt", async () => {
+    let streamAttempts = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("/app")) {
+        return new Response('"SNlM0e":"test_sn"', { status: 200 });
+      }
+      streamAttempts++;
+      if (streamAttempts === 1) {
+        return makeStreamResponse(['[["di",1]]\n']);
+      }
+      return makeStreamResponse([makeWrbLine("Recovered successfully", true)]);
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      headers: { authorization: "Bearer sk-personal-gw" },
+      payload: {
+        model: "gemini-4-hydrogen",
+        stream: true,
+        messages: [{ role: "user", content: "hello" }]
+      }
+    });
+
+    expect(streamAttempts).toBe(2);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain("Recovered successfully");
+    expect(addLogSpy).toHaveBeenLastCalledWith(expect.objectContaining({ status_code: 200 }));
+  });
+});

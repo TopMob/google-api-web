@@ -1,5 +1,92 @@
+export class UpstreamEmptyResponseError extends Error {
+  constructor(message = "Upstream returned an empty response (no assistant content or tool calls).") {
+    super(message);
+    this.name = "UpstreamEmptyResponseError";
+  }
+}
+
+export class UpstreamRateLimitError extends Error {
+  constructor(message = "Upstream rate limit exceeded. Please try again later.") {
+    super(message);
+    this.name = "UpstreamRateLimitError";
+  }
+}
+
+export class ClientAbortedError extends Error {
+  constructor(message = "Client closed request before completion.") {
+    super(message);
+    this.name = "ClientAbortedError";
+  }
+}
+
+const UPSTREAM_RATE_LIMIT_PHRASE =
+  "i couldn't do that because i'm getting a lot of requests right now. please try again later.";
+
+function normalizeWhitespaceLower(text: string): string {
+  return text.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+export function isUpstreamRateLimitMessage(text: string): boolean {
+  if (!text) return false;
+  const normalized = normalizeWhitespaceLower(text);
+  if (normalized.length === 0 || normalized.length > 300) return false;
+  return /getting a lot of requests right now\.?\s*please try again later\.?/i.test(normalized);
+}
+
+export function isPotentialRateLimitPrefix(text: string): boolean {
+  if (!text) return false;
+  const normalized = normalizeWhitespaceLower(text);
+  if (normalized.length === 0 || normalized.length > UPSTREAM_RATE_LIMIT_PHRASE.length) return false;
+  return UPSTREAM_RATE_LIMIT_PHRASE.startsWith(normalized);
+}
+
 export function normalizeError(err: any): { status: number; body: any } {
   const msg = err instanceof Error ? err.message : String(err);
+
+  if (err instanceof UpstreamRateLimitError || (err instanceof Error && err.name === "UpstreamRateLimitError")) {
+    return {
+      status: 429,
+      body: {
+        error: {
+          message: msg,
+          type: "rate_limit_error",
+          param: null,
+          code: "upstream_rate_limit"
+        }
+      }
+    };
+  }
+
+  if (
+    err instanceof UpstreamEmptyResponseError ||
+    (err instanceof Error && err.name === "UpstreamEmptyResponseError")
+  ) {
+    return {
+      status: 502,
+      body: {
+        error: {
+          message: msg,
+          type: "api_error",
+          param: null,
+          code: "empty_upstream_response"
+        }
+      }
+    };
+  }
+
+  if (err instanceof ClientAbortedError || (err instanceof Error && err.name === "ClientAbortedError")) {
+    return {
+      status: 499,
+      body: {
+        error: {
+          message: msg,
+          type: "api_error",
+          param: null,
+          code: "client_aborted"
+        }
+      }
+    };
+  }
 
   if (err instanceof Error && err.name === "ImageValidationError") {
     return {

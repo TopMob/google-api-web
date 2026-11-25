@@ -4,7 +4,13 @@ import { verifyApiKey, logUsage } from "../services/auth.js";
 import { geminiStreamGenerate } from "../services/gemini.js";
 import { ChatMessage, extractResponseText, messagesToPrompt } from "../utils/parsers.js";
 import { geminiCircuitBreaker } from "../utils/circuitBreaker.js";
-import { normalizeError } from "../utils/errors.js";
+import {
+  normalizeError,
+  isUpstreamRateLimitMessage,
+  UpstreamEmptyResponseError,
+  UpstreamRateLimitError,
+  ClientAbortedError
+} from "../utils/errors.js";
 import { countTokens } from "../utils/tokens.js";
 import { extractImagesFromMessages, uploadAllImages } from "../services/multimodal.js";
 
@@ -199,7 +205,17 @@ export async function googleGenerateContentController(request: FastifyRequest, r
       )
     );
 
+    if (abortController.signal.aborted) {
+      throw new ClientAbortedError();
+    }
+
     const text = extractResponseText(raw);
+    if (isUpstreamRateLimitMessage(text)) {
+      throw new UpstreamRateLimitError();
+    }
+    if (!text.trim()) {
+      throw new UpstreamEmptyResponseError();
+    }
     const promptTokens = countTokens(prompt);
     const completionTokens = countTokens(text);
     const payload = formatGoogleGenerateResponse(text, modelName, promptTokens, completionTokens);
@@ -223,11 +239,21 @@ export async function googleGenerateContentController(request: FastifyRequest, r
     const durationMs = Date.now() - startTime;
     const normalized = normalizeError(e);
     await logUsage(auth.projectId!, auth.apiKeyId!, modelName, countTokens(prompt), 0, durationMs, normalized.status);
+    const googleStatus =
+      normalized.status === 429
+        ? "RESOURCE_EXHAUSTED"
+        : normalized.status === 401
+          ? "UNAUTHENTICATED"
+          : normalized.status === 403
+            ? "PERMISSION_DENIED"
+            : normalized.status === 400
+              ? "INVALID_ARGUMENT"
+              : "INTERNAL";
     return reply.status(normalized.status).send({
       error: {
         code: normalized.status,
         message: normalized.body?.error?.message || "Gateway error",
-        status: "INTERNAL"
+        status: googleStatus
       }
     });
   }
