@@ -223,6 +223,12 @@ export async function handleChatStreamWithTools(
   let responseText = "";
   let streamedLength = 0;
   let toolSuspended = false;
+  const hasAttemptCompletion = Boolean(
+    tools?.some((t) => {
+      const name = t.type === "function" ? t.function?.name || t.name : t.name;
+      return name === "attempt_completion";
+    })
+  );
 
   try {
     const { url, headers, body } = await buildGeminiRequest(
@@ -313,7 +319,7 @@ export async function handleChatStreamWithTools(
                       }
                     }
 
-                    if (!toolSuspended) {
+                    if (!toolSuspended && !hasAttemptCompletion) {
                       const delta = responseText.substring(streamedLength);
                       if (delta && reply.raw.writable && !reply.raw.writableEnded) {
                         const chunk = {
@@ -350,12 +356,13 @@ export async function handleChatStreamWithTools(
     const parsed = parseToolCalls(responseText);
     const cleanText = parsed.cleanText;
     const toolCalls = applyRooCodeToolFallback(cleanText, parsed.toolCalls, tools);
+    const fallbackUsed = !parsed.toolCalls && Boolean(toolCalls);
 
     const promptTokens = countTokens(prompt);
     const completionTokens = countTokens(cleanText);
 
     if (reply.raw.writable && !reply.raw.writableEnded) {
-      if (cleanText.length > streamedLength) {
+      if (!fallbackUsed && cleanText.length > streamedLength) {
         const delta = cleanText.substring(streamedLength);
         const chunk = {
           id: cid,

@@ -103,17 +103,23 @@ export interface ToolDefinition {
 export function messagesToPrompt(
   messages: ChatMessage[],
   tools?: ToolDefinition[],
-  responseFormat?: { type: string }
+  responseFormat?: { type: string; json_schema?: unknown },
+  toolChoice?: string | Record<string, unknown>
 ): string {
   const parts: string[] = [];
   if (responseFormat?.type === "json_object") {
     parts.push(
       "[System instruction]: You MUST respond with a valid JSON object. Do not include markdown code block formatting."
     );
+  } else if (responseFormat?.type === "json_schema") {
+    const schemaStr = responseFormat.json_schema ? ` Schema: ${JSON.stringify(responseFormat.json_schema)}` : "";
+    parts.push(
+      `[System instruction]: You MUST respond strictly with valid JSON matching the requested schema (no markdown code fences).${schemaStr}`
+    );
   }
   let hasTools = false;
-  let requiresToolCall = false;
-  if (tools && tools.length > 0) {
+  let requiresToolCall = toolChoice === "required" || (typeof toolChoice === "object" && toolChoice !== null);
+  if (tools && tools.length > 0 && toolChoice !== "none") {
     hasTools = true;
     const toolDefs = tools.map((tool) => {
       const fn = tool.type === "function" ? tool.function : tool;

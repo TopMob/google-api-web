@@ -459,5 +459,17 @@ describe("Roo Code & IDE Tool Calling Adaptation", () => {
       { type: "function", function: { name: "search_web", description: "Search", parameters: {} } }
     ]);
     expect(noFallback).toBeNull();
+
+    const jsonSchemaPrompt = messagesToPrompt(
+      [
+        { role: "tool", name: "read_file", tool_call_id: "call_1", content: "ok" },
+        { role: "user", content: "next" }
+      ],
+      [{ type: "function", function: { name: "search_web", description: "Search", parameters: {} } }],
+      { type: "json_schema", json_schema: { name: "out", schema: { type: "object" } } },
+      "required"
+    );
+    expect(jsonSchemaPrompt).toContain("Schema:");
+    expect(jsonSchemaPrompt).toContain("requires every response to end");
   });
 });

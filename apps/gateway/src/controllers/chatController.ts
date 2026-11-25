@@ -48,7 +48,7 @@ export async function chatCompletionController(request: FastifyRequest, reply: F
     });
   }
 
-  const prompt = messagesToPrompt(req.messages, req.tools, req.response_format);
+  const prompt = messagesToPrompt(req.messages, req.tools, req.response_format, req.tool_choice);
   if (!prompt.trim()) {
     return reply.status(400).send({
       error: {
@@ -142,14 +142,17 @@ export async function chatCompletionController(request: FastifyRequest, reply: F
     let cleanText = text;
     let toolCalls: any = null;
 
-    if (req.tools && req.tools.length > 0) {
+    if (req.tools && req.tools.length > 0 && req.tool_choice !== "none") {
       const parsed = parseToolCalls(text);
       cleanText = parsed.cleanText;
       toolCalls = applyRooCodeToolFallback(cleanText, parsed.toolCalls, req.tools);
+      if (!parsed.toolCalls && toolCalls) {
+        cleanText = "";
+      }
     }
 
     let contentText = cleanText;
-    if (req.response_format?.type === "json_object" && contentText) {
+    if ((req.response_format?.type === "json_object" || req.response_format?.type === "json_schema") && contentText) {
       contentText = cleanJsonResponse(contentText);
     }
     const msg: any = { role: "assistant", content: contentText || null };

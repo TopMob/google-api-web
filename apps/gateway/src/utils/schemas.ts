@@ -12,7 +12,8 @@ export const chatCompletionSchema = z.object({
           .optional()
           .default(""),
         name: z.string().optional(),
-        tool_calls: z.array(z.any()).optional()
+        tool_calls: z.array(z.any()).optional(),
+        tool_call_id: z.string().optional()
       })
     )
     .min(1, "messages list must contain at least 1 message"),
@@ -24,11 +25,14 @@ export const chatCompletionSchema = z.object({
     .optional(),
   stop: z.union([z.string(), z.array(z.string())]).optional(),
   tools: z.array(z.any()).optional(),
+  tool_choice: z.union([z.string(), z.record(z.string(), z.any())]).optional(),
+  parallel_tool_calls: z.boolean().optional(),
   temperature: z.number().optional(),
   max_tokens: z.number().optional(),
   response_format: z
     .object({
-      type: z.enum(["text", "json_object"])
+      type: z.enum(["text", "json_object", "json_schema"]),
+      json_schema: z.any().optional()
     })
     .optional()
 });
