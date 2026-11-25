@@ -35,6 +35,31 @@ npm run dev
 - Панель управления: **http://localhost:3000**
 - Healthcheck шлюза: **http://localhost:8081/health**
 
+### Быстрый запуск на Windows (`start.bat`) и доступ извне (`ngrok`)
+
+В корне проекта есть [start.bat](start.bat) с выбором режима:
+
+- **`[1] Local`** — запускает только локально (`:3000` и `:8081`).
+- **`[2] Online`** — запускает `npm run dev` и туннель `ngrok http 8081` в отдельном окне (веб-панель `:3000` остаётся только локальной).
+
+#### Первичная настройка `ngrok` (делается 1 раз на машине):
+
+1. Зарегистрируйтесь бесплатно (через GitHub или Google, карта не нужна) на **[https://ngrok.com](https://ngrok.com)** и скопируйте свой **Authtoken** из раздела **Your Authtoken** в [dashboard.ngrok.com](https://dashboard.ngrok.com).
+2. Установите, обновите и привяжите токен в PowerShell:
+   ```powershell
+   winget install Ngrok.Ngrok
+   ngrok update
+   ngrok config add-authtoken ВАШ_ТОКЕН
+   ```
+3. _(Опционально — для постоянного адреса)_ В панели ngrok перейдите в **Domains** → создайте бесплатный статический домен и перед запуском `start.bat` задайте переменную окружения:
+   ```powershell
+   set NGROK_DOMAIN=ваш-домен.ngrok-free.app
+   ```
+4. Перед открытием наружу зайдите на **http://localhost:3000** → **Подключение**, создайте свой API-ключ и отключите дефолтный `sk-personal-gw`.
+5. В клиенте (OpenCode / Roo Code) укажите:
+   - **Base URL:** `https://<ваш-адрес>.ngrok-free.dev/v1` (или `.ngrok-free.app/v1`)
+   - **API Key:** ваш созданный ключ
+
 ---
 
 ## Доступные модели
