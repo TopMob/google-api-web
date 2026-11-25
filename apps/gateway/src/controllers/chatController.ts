@@ -1,5 +1,5 @@
 import { FastifyRequest, FastifyReply } from "fastify";
-import { v4 as uuidv4 } from "uuid";
+import crypto from "crypto";
 import { resolveModelConfig } from "../utils/models.js";
 import { verifyApiKey, logUsage } from "../services/auth.js";
 import { geminiStreamGenerate } from "../services/gemini.js";
@@ -55,7 +55,7 @@ export async function chatCompletionController(request: FastifyRequest, reply: F
   }
 
   const stream = req.stream === true;
-  const cid = `chatcmpl-${uuidv4().replace(/-/g, "").substring(0, 12)}`;
+  const cid = `chatcmpl-${crypto.randomUUID().replace(/-/g, "").substring(0, 12)}`;
   const startTime = Date.now();
   const customCookie = auth.customCookie;
 

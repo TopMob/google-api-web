@@ -84,7 +84,7 @@ export const MODELS: Record<string, ModelConfig> = {
     desc: "Gemini 4 Argon — Balanced heavy-duty frontier model"
   },
   "gemini-4-neon": {
-    mode: 1,
+    mode: 2,
     think: 0,
     desc: "Gemini 4 Neon — Mid-tier coding and agentic model"
   },

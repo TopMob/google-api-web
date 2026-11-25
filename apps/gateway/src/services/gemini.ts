@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from "uuid";
+import crypto from "crypto";
 import { config, GEMINI_BL, AUTH_USER, RETRY_ATTEMPTS, RETRY_DELAY_SEC } from "../config.js";
 import { loadCookie, makeSapisidHash, parseRawCookieString, getGeminiSessionInfo } from "../utils/cookie.js";
 import { fetchWithRetry } from "../utils/fetchWithRetry.js";
@@ -89,7 +89,7 @@ export async function buildGeminiRequest(
     .setLanguage("en")
     .setContextOptions()
     .setThinkMode(thinkMode)
-    .setSessionId(uuidv4())
+    .setSessionId(crypto.randomUUID())
     .setModelId(modelId)
     .setStaticFlags()
     .build();

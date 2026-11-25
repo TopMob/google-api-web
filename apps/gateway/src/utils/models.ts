@@ -23,7 +23,7 @@ const FALLBACK_MODELS: Record<string, ModelConfig> = {
     desc: "Gemini 4 Argon — Сбалансированная frontier-модель для ежедневных задач"
   },
   "gemini-4-neon": {
-    mode: 1,
+    mode: 2,
     think: 0,
     desc: "Gemini 4 Neon — Средний уровень между Hydrogen и Carbon для кода и агентов"
   },
@@ -71,7 +71,7 @@ const FALLBACK_MODELS: Record<string, ModelConfig> = {
     desc: "Gemini Argon (Points to Gemini 4 Argon)"
   },
   "gemini-neon": {
-    mode: 1,
+    mode: 2,
     think: 0,
     desc: "Gemini Neon (Points to Gemini 4 Neon)"
   },
@@ -103,8 +103,8 @@ const KNOWN_MODE_MAP: Record<string, number> = {
   "gemini-carbon": 3,
   "gemini-4-argon": 3,
   "gemini-argon": 3,
-  "gemini-4-neon": 1,
-  "gemini-neon": 1,
+  "gemini-4-neon": 2,
+  "gemini-neon": 2,
   "gemini-4-hydrogen": 1,
   "gemini-hydrogen": 1,
 
@@ -271,7 +271,7 @@ export function guessMode(name: string): number {
   )
     return 3;
   if (lower.includes("thinking-lite")) return 5;
-  if (lower.includes("thinking")) return 2;
+  if (lower.includes("neon") || lower.includes("thinking")) return 2;
   if (lower.includes("flash-lite") || lower.includes("lite")) return 6;
   if (lower.includes("auto")) return 4;
   return 1;

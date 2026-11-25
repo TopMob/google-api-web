@@ -308,7 +308,7 @@ describe("Gemini 4 Elemental Models (Carbon, Argon, Neon, Hydrogen)", () => {
   it("should map elemental model modes and thinking defaults accurately", () => {
     expect(guessMode("gemini-4-carbon")).toBe(3);
     expect(guessMode("gemini-4-argon")).toBe(3);
-    expect(guessMode("gemini-4-neon")).toBe(1);
+    expect(guessMode("gemini-4-neon")).toBe(2);
     expect(guessMode("gemini-4-hydrogen")).toBe(1);
 
     const carbon = resolveModelConfig("gemini-4-carbon");
