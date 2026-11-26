@@ -10,7 +10,8 @@ const server = fastify({
   logger: {
     level: LOG_LEVEL
   },
-  disableRequestLogging: true
+  disableRequestLogging: true,
+  bodyLimit: 50 * 1024 * 1024 // 50 MiB to support large coding contexts and base64 images
 });
 
 server.register(import("@fastify/helmet"), {

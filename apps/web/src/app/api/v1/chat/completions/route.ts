@@ -7,23 +7,31 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const gatewayUrl = process.env.GATEWAY_URL || "http://127.0.0.1:8081";
 
-    const authHeader = req.headers.get("authorization") || "";
     const headers: Record<string, string> = {
       "Content-Type": "application/json"
     };
-    if (authHeader) {
-      headers["authorization"] = authHeader;
-    }
+    const authHeader = req.headers.get("authorization");
+    const xApiKey = req.headers.get("x-api-key");
+    const xGoogApiKey = req.headers.get("x-goog-api-key");
+    if (authHeader) headers["authorization"] = authHeader;
+    if (xApiKey) headers["x-api-key"] = xApiKey;
+    if (xGoogApiKey) headers["x-goog-api-key"] = xGoogApiKey;
 
     const response = await fetch(`${gatewayUrl}/v1/chat/completions`, {
       method: "POST",
       headers,
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal: req.signal
     });
 
     if (!response.ok) {
       const errText = await response.text();
-      return NextResponse.json({ error: errText }, { status: response.status });
+      try {
+        const parsed = JSON.parse(errText);
+        return NextResponse.json(parsed, { status: response.status });
+      } catch {
+        return NextResponse.json({ error: { message: errText, type: "api_error" } }, { status: response.status });
+      }
     }
 
     if (body.stream) {
@@ -62,6 +70,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(data);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: { message, type: "api_error" } }, { status: 500 });
   }
 }

@@ -175,13 +175,27 @@ export default function ConnectTab({
       case "opencode": {
         const cfgPath =
           os === "windows" ? "%USERPROFILE%\\.config\\opencode\\opencode.json" : "~/.config/opencode/opencode.json";
-        const modelsObj = (models.length > 0 ? models : [effectiveModel]).reduce<Record<string, { name: string }>>(
-          (acc, m) => {
-            acc[m] = { name: `${m} (Gateway)` };
-            return acc;
-          },
-          {}
-        );
+        const modelsObj = (models.length > 0 ? models : [effectiveModel]).reduce<
+          Record<
+            string,
+            {
+              name: string;
+              attachment: boolean;
+              reasoning: boolean;
+              tool_call: boolean;
+              limit: { context: number; output: number };
+            }
+          >
+        >((acc, m) => {
+          acc[m] = {
+            name: `${m} (Gateway)`,
+            attachment: true,
+            reasoning: m.includes("carbon") || m.includes("neon") || m.includes("thinking"),
+            tool_call: true,
+            limit: { context: 200000, output: 65536 }
+          };
+          return acc;
+        }, {});
         return {
           hint: cfgPath,
           code: JSON.stringify(

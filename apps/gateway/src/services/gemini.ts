@@ -1,16 +1,61 @@
 import crypto from "crypto";
-import { config, GEMINI_BL, RETRY_ATTEMPTS, RETRY_DELAY_SEC, TEMPORARY_CHATS } from "../config.js";
+import { GEMINI_BL, RETRY_ATTEMPTS, TEMPORARY_CHATS } from "../config.js";
 import { store } from "../db.js";
 import {
   loadCookie,
   makeSapisidHash,
   parseRawCookieString,
   getGeminiSessionInfo,
-  invalidateGeminiSessionCache
+  invalidateGeminiSessionCache,
+  applyRotatedCookies,
+  recordResponseSetCookies
 } from "../utils/cookie.js";
 import { fetchWithRetry } from "../utils/fetchWithRetry.js";
-import { extractResponseText } from "../utils/parsers.js";
+import { detectBardErrorInfo, extractResponseText } from "../utils/parsers.js";
+import { UpstreamRejectedError } from "../utils/errors.js";
 import { logger } from "../logger.js";
+
+const STREAM_IDLE_TIMEOUT_MS = 90_000;
+let reqIdCounter = Math.floor(Date.now() / 1000) % 1000000;
+
+function nextReqId(): number {
+  reqIdCounter = (reqIdCounter + 1) % 1000000;
+  return reqIdCounter;
+}
+
+export async function readChunkWithTimeout(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  timeoutMs = STREAM_IDLE_TIMEOUT_MS,
+  signal?: AbortSignal
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      try {
+        reader.cancel().catch(() => {});
+      } catch {}
+      reject(new Error(`Upstream stream read timed out after ${Math.round(timeoutMs / 1000)}s of inactivity`));
+    }, timeoutMs);
+  });
+
+  const abortPromise = signal
+    ? new Promise<never>((_, reject) => {
+        if (signal.aborted) {
+          reject(signal.reason || new Error("Aborted"));
+          return;
+        }
+        signal.addEventListener("abort", () => reject(signal.reason || new Error("Aborted")), { once: true });
+      })
+    : null;
+
+  try {
+    const racers: Promise<ReadableStreamReadResult<Uint8Array>>[] = [reader.read(), timeoutPromise];
+    if (abortPromise) racers.push(abortPromise);
+    return await Promise.race(racers);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 class GeminiPayloadBuilder {
   private payload: any[] = [];
@@ -84,19 +129,22 @@ export async function buildGeminiRequest(
 ): Promise<{ url: string; headers: Record<string, string>; body: string }> {
   let cookieStr = "";
   let sapisid: string | null = null;
+  let activeAuthUser = "0";
 
   if (customCookie) {
     const parsed = parseRawCookieString(customCookie);
     cookieStr = parsed.cookieStr;
     sapisid = parsed.sapisid;
+    activeAuthUser = "0";
   } else {
     const loaded = loadCookie();
-    cookieStr = loaded.cookieStr;
-    sapisid = loaded.sapisid;
+    const withRotated = applyRotatedCookies(loaded.cookieStr);
+    cookieStr = withRotated.cookieStr || loaded.cookieStr;
+    sapisid = withRotated.sapisid || loaded.sapisid;
+    activeAuthUser = store.getAuthUser();
   }
 
   // Get dynamic build label and SNlM0e token for active Google account
-  const activeAuthUser = store.getAuthUser();
   const sessionInfo = await getGeminiSessionInfo(cookieStr, sapisid, activeAuthUser);
   const bl = sessionInfo.bl || GEMINI_BL;
   const sn = sessionInfo.sn;
@@ -117,8 +165,8 @@ export async function buildGeminiRequest(
     bodyParams.append("at", sn);
   }
 
-  const reqid = Math.floor(Date.now() / 1000) % 1000000;
-  const prefix = activeAuthUser ? `/u/${activeAuthUser}` : "";
+  const reqid = nextReqId();
+  const prefix = activeAuthUser && activeAuthUser !== "0" ? `/u/${activeAuthUser}` : "";
   const url = `https://gemini.google.com${prefix}/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate?bl=${bl}&hl=en&_reqid=${reqid}&rt=c`;
 
   const headers: Record<string, string> = {
@@ -130,7 +178,7 @@ export async function buildGeminiRequest(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
   };
 
-  if (activeAuthUser) {
+  if (activeAuthUser && activeAuthUser !== "0") {
     headers["X-Goog-AuthUser"] = String(activeAuthUser);
   }
 
@@ -181,6 +229,7 @@ export async function geminiStreamGenerate(
       },
       { maxRetries: RETRY_ATTEMPTS }
     );
+    recordResponseSetCookies(response);
 
     const reader = response.body?.getReader();
     if (!reader) {
@@ -191,48 +240,57 @@ export async function geminiStreamGenerate(
       let fullOutput = "";
       let isCompleted = false;
 
-      while (!isCompleted) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      try {
+        while (!isCompleted) {
+          const { done, value } = await readChunkWithTimeout(reader, STREAM_IDLE_TIMEOUT_MS, signal);
+          if (done) break;
 
-        const textChunk = decoder.decode(value, { stream: true });
-        fullOutput += textChunk;
-        buffer += textChunk;
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
+          const textChunk = decoder.decode(value, { stream: true });
+          fullOutput += textChunk;
+          buffer += textChunk;
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
 
-        for (const line of lines) {
-          if (line.includes('["di",') || line.includes('["e",') || line.includes('"af.httprm"')) {
-            isCompleted = true;
-            break;
-          }
-          if (line.includes('"wrb.fr"') && line.length > 50) {
-            try {
-              const innerStr = JSON.parse(line)[0][2];
-              if (innerStr) {
-                const inner = JSON.parse(innerStr);
-                const candidates = [inner[4], inner[0]].filter(Boolean);
-                for (const candidate of candidates) {
-                  if (Array.isArray(candidate)) {
-                    for (const part of candidate) {
-                      if (Array.isArray(part) && Array.isArray(part[8]) && part[8].includes(2)) {
-                        isCompleted = true;
-                        break;
+          for (const line of lines) {
+            const bardCode = detectBardErrorInfo(line);
+            if (bardCode) {
+              throw new UpstreamRejectedError(
+                `Gemini upstream rejected request: BardErrorInfo [${bardCode}]`,
+                bardCode
+              );
+            }
+            if (line.includes('["di",') || line.includes('["e",') || line.includes('"af.httprm"')) {
+              isCompleted = true;
+              break;
+            }
+            if (line.includes('"wrb.fr"') && line.length > 50) {
+              try {
+                const innerStr = JSON.parse(line)[0][2];
+                if (innerStr) {
+                  const inner = JSON.parse(innerStr);
+                  const candidates = [inner[4], inner[0]].filter(Boolean);
+                  for (const candidate of candidates) {
+                    if (Array.isArray(candidate)) {
+                      for (const part of candidate) {
+                        if (Array.isArray(part) && Array.isArray(part[8]) && part[8].includes(2)) {
+                          isCompleted = true;
+                          break;
+                        }
                       }
                     }
+                    if (isCompleted) break;
                   }
-                  if (isCompleted) break;
                 }
-              }
-            } catch {}
+              } catch {}
+            }
+            if (isCompleted) break;
           }
-          if (isCompleted) break;
         }
+      } finally {
+        try {
+          reader.cancel().catch(() => {});
+        } catch {}
       }
-
-      try {
-        reader.cancel();
-      } catch {}
 
       lastOutput = fullOutput;
     }

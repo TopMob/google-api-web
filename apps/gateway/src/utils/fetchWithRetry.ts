@@ -30,7 +30,7 @@ export async function fetchWithRetry(
     maxRetries = 3,
     initialDelayMs = 500,
     maxDelayMs = 5000,
-    timeoutMs = 60000 // Default 60 seconds timeout per request
+    timeoutMs = 180000 // 180 seconds TTFB timeout so deep thinking models don't abort prematurely
   } = retryOptions;
 
   let lastErr: any = null;
@@ -71,11 +71,15 @@ export async function fetchWithRetry(
       }
 
       if (!response.ok) {
-        const err = new Error(`Upstream returned ${response.status} ${response.statusText}`);
-        // Do not retry 4xx client/auth errors (e.g. invalid cookie, bad prompt, forbidden)
-        if (response.status >= 400 && response.status < 500 && response.status !== 429) {
-          throw err;
-        }
+        let bodySnippet = "";
+        try {
+          const text = await response.text();
+          if (text) {
+            bodySnippet = text.replace(/\s+/g, " ").trim().slice(0, 240);
+          }
+        } catch {}
+        const detail = bodySnippet ? ` - ${bodySnippet}` : "";
+        const err = new Error(`Upstream returned ${response.status} ${response.statusText}${detail}`);
         throw err;
       }
 
@@ -92,14 +96,9 @@ export async function fetchWithRetry(
         throw e;
       }
 
-      // Do not retry 4xx errors
+      // Do not retry 4xx errors (including 429 so clients handle backoff cleanly)
       const msg = e.message || "";
-      if (
-        msg.includes("returned 400") ||
-        msg.includes("returned 401") ||
-        msg.includes("returned 403") ||
-        msg.includes("returned 404")
-      ) {
+      if (/Upstream returned 4\d\d\b/.test(msg)) {
         throw e;
       }
 

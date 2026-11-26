@@ -26,6 +26,25 @@ describe("Schema Utilities", () => {
     const result = chatCompletionSchema.safeParse(payload);
     expect(result.success).toBe(true);
   });
+
+  it("should accept null optional fields sent by OpenAI/LiteLLM/Vercel AI SDK clients", () => {
+    const payload = {
+      model: "gemini-4-carbon",
+      messages: [{ role: "user", content: "hello", name: null, tool_call_id: null }],
+      tool_choice: null,
+      stop: null,
+      tools: null,
+      temperature: null,
+      max_tokens: null,
+      max_completion_tokens: 4096,
+      reasoning_effort: "high",
+      parallel_tool_calls: null,
+      response_format: null,
+      stream_options: null
+    };
+    const result = chatCompletionSchema.safeParse(payload);
+    expect(result.success).toBe(true);
+  });
 });
 
 describe("Parser Utilities", () => {

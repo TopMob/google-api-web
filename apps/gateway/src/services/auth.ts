@@ -106,25 +106,32 @@ export async function verifyApiKey(request: FastifyRequest, model: string): Prom
     return { valid: false, error: "Missing API key / Authorization header", statusCode: 401 };
   }
 
-  // Check admin key (configured via ADMIN_API_KEY env; no hardcoded bypass)
-  const adminKey = process.env.ADMIN_API_KEY || ADMIN_API_KEY;
+  // Check admin key (configured via ADMIN_API_KEY env; no rate limits as documented)
+  const envAdminKey = process.env.ADMIN_API_KEY;
+  const adminKey = envAdminKey || ADMIN_API_KEY;
   if (adminKey && key === adminKey) {
-    rateLimitKey = `static:${key}`;
-    rateLimitRpm = DEFAULT_RATE_LIMIT_RPM;
-
-    if (rateLimitRpm > 0) {
-      const isRateOk = await checkRateLimit(rateLimitKey, rateLimitRpm);
-      if (!isRateOk) {
-        return { valid: false, error: "Rate limit exceeded. Please slow down.", statusCode: 429 };
+    // If using the built-in default sk-personal-gw (not explicitly overridden in env),
+    // respect disabling/deleting the default key in the Web UI store.
+    const isUsingBuiltInDefault = !envAdminKey && adminKey === "sk-personal-gw";
+    let defaultKeyDisabledInStore = false;
+    if (isUsingBuiltInDefault) {
+      const allKeys = store.getApiKeys();
+      const defaultEntry = allKeys.find((k) => k.id === "00000000-0000-0000-0000-000000000001");
+      if (defaultEntry && !defaultEntry.active) {
+        defaultKeyDisabledInStore = true;
+      } else if (!defaultEntry && allKeys.length > 0) {
+        defaultKeyDisabledInStore = true;
       }
     }
 
-    return {
-      valid: true,
-      projectId: "00000000-0000-0000-0000-000000000000",
-      apiKeyId: "00000000-0000-0000-0000-000000000001",
-      temporaryChats: TEMPORARY_CHATS
-    };
+    if (!defaultKeyDisabledInStore) {
+      return {
+        valid: true,
+        projectId: "00000000-0000-0000-0000-000000000000",
+        apiKeyId: "00000000-0000-0000-0000-000000000001",
+        temporaryChats: TEMPORARY_CHATS
+      };
+    }
   }
 
   // Check LocalStore API keys
@@ -141,7 +148,7 @@ export async function verifyApiKey(request: FastifyRequest, model: string): Prom
     return { valid: false, error: `Model '${model}' is not allowed for this API key`, statusCode: 403 };
   }
 
-  const keyRpm = storedKey.rate_limit_rpm || DEFAULT_RATE_LIMIT_RPM;
+  const keyRpm = storedKey.rate_limit_rpm ?? DEFAULT_RATE_LIMIT_RPM;
   if (keyRpm > 0) {
     const isRateOk = await checkRateLimit(storedKey.id, keyRpm);
     if (!isRateOk) {

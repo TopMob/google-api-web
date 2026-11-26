@@ -12,6 +12,15 @@ export class UpstreamRateLimitError extends Error {
   }
 }
 
+export class UpstreamRejectedError extends Error {
+  public readonly bardCode?: string;
+  constructor(message: string, bardCode?: string) {
+    super(message);
+    this.name = "UpstreamRejectedError";
+    this.bardCode = bardCode;
+  }
+}
+
 export class ClientAbortedError extends Error {
   constructor(message = "Client closed request before completion.") {
     super(message);
@@ -97,6 +106,24 @@ export function normalizeError(err: any): { status: number; body: any } {
           type: "invalid_request_error",
           param: "messages",
           code: "invalid_image_input"
+        }
+      }
+    };
+  }
+
+  if (
+    err instanceof UpstreamRejectedError ||
+    (err instanceof Error && err.name === "UpstreamRejectedError") ||
+    msg.includes("BardErrorInfo")
+  ) {
+    return {
+      status: 502,
+      body: {
+        error: {
+          message: msg,
+          type: "api_error",
+          param: null,
+          code: "upstream_rejected"
         }
       }
     };

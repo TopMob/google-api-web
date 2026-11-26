@@ -694,3 +694,244 @@ describe("Upstream Error, Empty Response & Rate-Limit Mapping", () => {
     expect(addLogSpy).toHaveBeenLastCalledWith(expect.objectContaining({ status_code: 200 }));
   });
 });
+
+describe("Coding Agents Stability (RooCode, OpenCode, Cursor, Gemini CLI)", () => {
+  let app: ReturnType<typeof fastify>;
+  let addLogSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    app = fastify({ bodyLimit: 50 * 1024 * 1024 });
+    registerRoutes(app);
+    addLogSpy = vi.spyOn(store, "addUsageLog").mockImplementation(() => ({
+      id: "log_coding_test",
+      project_id: "0",
+      api_key_id: "1",
+      model: "gemini-4-hydrogen",
+      prompt_tokens: 1,
+      completion_tokens: 1,
+      total_tokens: 2,
+      duration_ms: 1,
+      status_code: 200,
+      created_at: new Date().toISOString()
+    }));
+  });
+
+  afterEach(async () => {
+    addLogSpy.mockRestore();
+    vi.restoreAllMocks();
+    await app.close();
+  });
+
+  it("should map tool_call_id to function name in multi-turn tool history and enforce specific tool_choice", () => {
+    const tools = [
+      { type: "function", function: { name: "read_file", description: "Read", parameters: {} } },
+      { type: "function", function: { name: "write_to_file", description: "Write", parameters: {} } }
+    ];
+    const prompt = messagesToPrompt(
+      [
+        { role: "user", content: "check a.ts and b.ts" },
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [
+            { id: "call_111", type: "function", function: { name: "read_file", arguments: '{"path":"a.ts"}' } },
+            { id: "call_222", type: "function", function: { name: "read_file", arguments: '{"path":"b.ts"}' } }
+          ]
+        },
+        { role: "tool", tool_call_id: "call_111", content: "content A" },
+        { role: "tool", tool_call_id: "call_222", content: "content B" }
+      ],
+      tools,
+      undefined,
+      { type: "function", function: { name: "write_to_file" } }
+    );
+
+    expect(prompt).toContain('"id":"call_111"');
+    expect(prompt).toContain("[Tool result for read_file (id: call_111)]: content A");
+    expect(prompt).toContain("[Tool result for read_file (id: call_222)]: content B");
+    expect(prompt).toContain('You MUST call the tool "write_to_file"');
+  });
+
+  it("should not hijack non-tool JSON examples when allowedTools are provided, and should extract inline raw tool calls", () => {
+    const tools = [{ type: "function", function: { name: "read_file", description: "Read", parameters: {} } }];
+
+    const codeExplanation = 'Example config:\n```json\n{"name": "my-app", "parameters": {"port": 3000}}\n```\nDone.';
+    const resNoHijack = parseToolCalls(codeExplanation, tools);
+    expect(resNoHijack.toolCalls).toBeNull();
+    expect(resNoHijack.cleanText).toContain('"my-app"');
+
+    const inlineCall = 'Let me check that file.\n{"name": "read_file", "arguments": {"path": "src/index.ts"}}';
+    const resInline = parseToolCalls(inlineCall, tools);
+    expect(resInline.toolCalls).toHaveLength(1);
+    expect(resInline.toolCalls![0].function.name).toBe("read_file");
+    expect(resInline.cleanText).toBe("Let me check that file.");
+  });
+
+  it("should buffer split ```tool_call fences without leaking partial backticks and emit OpenAI-compliant tool chunks", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("/app")) {
+        return new Response('"SNlM0e":"test_sn"', { status: 200 });
+      }
+      return makeStreamResponse([
+        makeWrbLine("Checking file.\n```to", false),
+        makeWrbLine('Checking file.\n```tool_call\n{"name":"read_file","arguments":{"path":"a.ts"}}\n```', true)
+      ]);
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      headers: { authorization: "Bearer sk-personal-gw" },
+      payload: {
+        model: "gemini-4-hydrogen",
+        stream: true,
+        messages: [{ role: "user", content: "read a.ts" }],
+        tools: [{ type: "function", function: { name: "read_file", description: "Read", parameters: {} } }]
+      }
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).not.toContain("```to");
+    expect(res.body).toContain('"role":"assistant"');
+    expect(res.body).toContain('"tool_calls"');
+    expect(res.body).toContain('"finish_reason":null');
+    expect(res.body).toContain('"finish_reason":"tool_calls"');
+  });
+
+  it("should respect tool_choice='none' in streaming mode and not trigger attempt_completion fallback", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("/app")) {
+        return new Response('"SNlM0e":"test_sn"', { status: 200 });
+      }
+      return makeStreamResponse([makeWrbLine("Just a plain text title", true)]);
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      headers: { authorization: "Bearer sk-personal-gw" },
+      payload: {
+        model: "gemini-4-hydrogen",
+        stream: true,
+        tool_choice: "none",
+        messages: [{ role: "user", content: "title" }],
+        tools: [{ type: "function", function: { name: "attempt_completion", description: "Done", parameters: {} } }]
+      }
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain("Just a plain text title");
+    expect(res.body).not.toContain("attempt_completion");
+    expect(res.body).toContain('"finish_reason":"stop"');
+  });
+
+  it("should stream /v1/responses SSE events and preserve function_call items in input history", async () => {
+    let capturedBody = "";
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("/app")) {
+        return new Response('"SNlM0e":"test_sn"', { status: 200 });
+      }
+      capturedBody = String(init?.body || "");
+      return makeStreamResponse([makeWrbLine("All done!", true)]);
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/responses",
+      headers: { authorization: "Bearer sk-personal-gw" },
+      payload: {
+        model: "gemini-4-hydrogen",
+        stream: true,
+        input: [
+          { role: "user", content: "check" },
+          { type: "function_call", call_id: "call_r1", name: "read_file", arguments: '{"path":"x.ts"}' },
+          { type: "function_call_output", call_id: "call_r1", output: "file ok" }
+        ],
+        tools: [{ type: "function", name: "read_file", description: "Read", parameters: {} }]
+      }
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("text/event-stream");
+    expect(res.body).toContain("event: response.created");
+    expect(res.body).toContain("event: response.output_text.delta");
+    expect(res.body).toContain("event: response.completed");
+
+    const fReq = new URLSearchParams(capturedBody).get("f.req") || "";
+    expect(fReq).toContain("read_file");
+    expect(fReq).toContain("file ok");
+  });
+
+  it("should support /v1beta :countTokens and tool calling for Gemini CLI", async () => {
+    const countRes = await app.inject({
+      method: "POST",
+      url: "/v1beta/models/gemini-4-hydrogen:countTokens",
+      headers: { "x-goog-api-key": "sk-personal-gw" },
+      payload: { contents: [{ role: "user", parts: [{ text: "hello world" }] }] }
+    });
+    expect(countRes.statusCode).toBe(200);
+    expect(countRes.json().totalTokens).toBeGreaterThan(0);
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("/app")) {
+        return new Response('"SNlM0e":"test_sn"', { status: 200 });
+      }
+      return makeStreamResponse([makeWrbLine('```tool_call\n{"name":"list_dir","arguments":{"path":"."}}\n```', true)]);
+    });
+
+    const genRes = await app.inject({
+      method: "POST",
+      url: "/v1beta/models/gemini-4-hydrogen:generateContent",
+      headers: { "x-goog-api-key": "sk-personal-gw" },
+      payload: {
+        contents: [{ role: "user", parts: [{ text: "list files" }] }],
+        tools: [{ functionDeclarations: [{ name: "list_dir", description: "List", parameters: {} }] }]
+      }
+    });
+    expect(genRes.statusCode).toBe(200);
+    expect(genRes.json().candidates[0].content.parts[0].functionCall).toEqual({
+      name: "list_dir",
+      args: { path: "." }
+    });
+  });
+
+  it("should not trip CircuitBreaker on 429 rate-limit errors", async () => {
+    const cb = new CircuitBreaker();
+    for (let i = 0; i < 6; i++) {
+      await expect(
+        cb.execute(async () => {
+          throw new Error("Upstream returned 429 Too Many Requests");
+        })
+      ).rejects.toThrow();
+    }
+    expect(cb.getStatus().state).toBe("CLOSED");
+    expect(cb.getStatus().failures).toBe(0);
+  });
+
+  it("should accept request payloads larger than 1 MiB without 413 error", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("/app")) {
+        return new Response('"SNlM0e":"test_sn"', { status: 200 });
+      }
+      return makeStreamResponse([makeWrbLine("Processed large context", true)]);
+    });
+
+    const largeText = "a".repeat(1.5 * 1024 * 1024);
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      headers: { authorization: "Bearer sk-personal-gw" },
+      payload: {
+        model: "gemini-4-hydrogen",
+        stream: false,
+        messages: [{ role: "user", content: largeText }]
+      }
+    });
+    expect(res.statusCode).toBe(200);
+  });
+});

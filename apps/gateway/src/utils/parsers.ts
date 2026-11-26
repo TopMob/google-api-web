@@ -1,9 +1,17 @@
 import { jsonrepair } from "jsonrepair";
 import { logger } from "../logger.js";
+import { UpstreamRejectedError } from "./errors.js";
 
 export function cleanGeminiText(text: string): string {
-  // Removes internal Gemini tags like ```python?code_reference=...``` or stdout
-  return text.replace(/```[a-z]*\?code_(?:reference|stdout|execution)[^\n]*\n[\s\S]*?```\n?/gi, "");
+  // Removes internal Gemini tags like ```python?code_reference=...``` or stdout and card_content URLs
+  return text
+    .replace(/```[a-z]*\?code_(?:reference|stdout|execution)[^\n]*\n[\s\S]*?```\n?/gi, "")
+    .replace(/https?:\/\/googleusercontent\.com\/card_content\/\d+\n?/gi, "");
+}
+
+export function detectBardErrorInfo(raw: string): string | null {
+  const match = raw.match(/BardErrorInfo\s*\[(\d+)\]/i);
+  return match ? match[1] : null;
 }
 
 function extractTextGeneric(obj: unknown): string {
@@ -70,13 +78,21 @@ export function extractResponseText(raw: string): string {
       logger.debug({ err: errMessage }, "Failed to parse chunk line in extractResponseText");
     }
   }
-  return cleanGeminiText(finalResult).trim();
+
+  const cleaned = cleanGeminiText(finalResult).trim();
+  if (!cleaned) {
+    const bardCode = detectBardErrorInfo(raw);
+    if (bardCode) {
+      throw new UpstreamRejectedError(`Gemini upstream rejected request: BardErrorInfo [${bardCode}]`, bardCode);
+    }
+  }
+  return cleaned;
 }
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool" | "developer" | "function";
   content?: string | Array<{ type: string; text?: string; input_text?: string } | any> | null;
-  name?: string;
+  name?: string | null;
   tool_calls?: Array<{
     id?: string;
     type?: string;
@@ -84,12 +100,12 @@ export interface ChatMessage {
       name?: string;
       arguments?: string | Record<string, any>;
     };
-  }>;
-  tool_call_id?: string;
+  }> | null;
+  tool_call_id?: string | null;
 }
 
 export interface ToolDefinition {
-  type: string;
+  type?: string;
   function?: {
     name?: string;
     description?: string;
@@ -100,11 +116,52 @@ export interface ToolDefinition {
   parameters?: Record<string, any>;
 }
 
+function getToolName(tool: ToolDefinition): string {
+  const fn = tool.type === "function" ? tool.function : tool;
+  return fn?.name || tool.name || "";
+}
+
+function getAllowedToolNames(tools?: ToolDefinition[] | null): Set<string> {
+  const names = new Set<string>();
+  if (!tools) return names;
+  for (const t of tools) {
+    const name = getToolName(t);
+    if (name) names.add(name);
+  }
+  return names;
+}
+
+function extractTextFromContentPart(part: any): string {
+  if (!part) return "";
+  if (typeof part === "string") return part;
+  if (typeof part !== "object") return "";
+  if (part.type === "text" || part.type === "input_text" || part.type === "output_text") {
+    if (typeof part.text === "string") return part.text;
+    if (part.text && typeof part.text.value === "string") return part.text.value;
+    if (typeof part.input_text === "string") return part.input_text;
+    return "";
+  }
+  if (part.type === "image_url" || part.type === "input_image" || part.type === "image") {
+    return "[Image attached]";
+  }
+  return "";
+}
+
+function extractForcedToolName(toolChoice?: string | Record<string, unknown> | null): string {
+  if (!toolChoice || typeof toolChoice !== "object") return "";
+  const fn = (toolChoice as any).function;
+  if (fn && typeof fn.name === "string" && fn.name) return fn.name;
+  if (typeof (toolChoice as any).name === "string" && (toolChoice as any).name) {
+    return (toolChoice as any).name;
+  }
+  return "";
+}
+
 export function messagesToPrompt(
   messages: ChatMessage[],
-  tools?: ToolDefinition[],
-  responseFormat?: { type: string; json_schema?: unknown },
-  toolChoice?: string | Record<string, unknown>
+  tools?: ToolDefinition[] | null,
+  responseFormat?: { type: string; json_schema?: unknown } | null,
+  toolChoice?: string | Record<string, unknown> | null
 ): string {
   const parts: string[] = [];
   if (responseFormat?.type === "json_object") {
@@ -117,8 +174,12 @@ export function messagesToPrompt(
       `[System instruction]: You MUST respond strictly with valid JSON matching the requested schema (no markdown code fences).${schemaStr}`
     );
   }
+
   let hasTools = false;
-  let requiresToolCall = toolChoice === "required" || (typeof toolChoice === "object" && toolChoice !== null);
+  const forcedToolName = extractForcedToolName(toolChoice);
+  let requiresToolCall =
+    toolChoice === "required" || Boolean(forcedToolName) || (typeof toolChoice === "object" && toolChoice !== null);
+
   if (tools && tools.length > 0 && toolChoice !== "none") {
     hasTools = true;
     const toolDefs = tools.map((tool) => {
@@ -137,53 +198,85 @@ export function messagesToPrompt(
       "[System instruction]: The external IDE/client provides the following client-side tools (executed by the client, NOT inside Gemini). Never claim you lack file-reading or follow-up tools — invoke them using ```tool_call blocks.\n" +
         `Available tools: ${JSON.stringify(toolDefs)}`
     );
+  } else if (toolChoice === "none" && tools && tools.length > 0) {
+    parts.push("[System instruction]: Do NOT call any tools. Respond with plain text only.");
   }
+
+  const toolCallNameById = new Map<string, string>();
+
   for (const msg of messages) {
     const role = msg.role || "user";
-    let content = msg.content || "";
+    let content: any = msg.content ?? "";
     if (Array.isArray(content)) {
       content = content
-        .filter((c: any) => c && (c.type === "text" || c.type === "input_text"))
-        .map((c: any) => c.text || "")
-        .join(" ");
+        .map((c: any) => extractTextFromContentPart(c))
+        .filter(Boolean)
+        .join("\n");
     }
+
     if (role === "system" || role === "developer") {
-      parts.push(`[System instruction]: ${content}`);
+      if (String(content).trim()) {
+        parts.push(`[System instruction]: ${content}`);
+      }
     } else if (role === "assistant") {
-      if (msg.tool_calls) {
+      if (msg.tool_calls && msg.tool_calls.length > 0) {
         const tcStrs = msg.tool_calls.map((tc: any) => {
           const fn = tc.function || {};
-          let argsObj = fn.arguments || {};
+          const fnName = fn.name || "";
+          if (tc.id && fnName) {
+            toolCallNameById.set(String(tc.id), String(fnName));
+          }
+          let argsObj = fn.arguments ?? {};
           if (typeof argsObj === "string") {
             try {
               argsObj = JSON.parse(argsObj);
-            } catch {}
+            } catch {
+              try {
+                argsObj = JSON.parse(jsonrepair(argsObj));
+              } catch {}
+            }
           }
-          return `\`\`\`tool_call\n${JSON.stringify({ name: fn.name, arguments: argsObj })}\n\`\`\``;
+          const serialized: Record<string, unknown> = {
+            ...(tc.id ? { id: tc.id } : {}),
+            name: fnName,
+            arguments: argsObj
+          };
+          return `\`\`\`tool_call\n${JSON.stringify(serialized)}\n\`\`\``;
         });
         parts.push(`[Assistant]: ${content || ""}\n` + tcStrs.join("\n"));
       } else {
         parts.push(`[Assistant]: ${content}`);
       }
     } else if (role === "tool" || role === "function") {
-      const toolName = msg.name || msg.tool_call_id || "";
+      const callId = msg.tool_call_id || "";
+      const mappedName = callId ? toolCallNameById.get(callId) : undefined;
+      const toolName = msg.name || mappedName || callId || "tool";
+      const idSuffix = callId && toolName !== callId ? ` (id: ${callId})` : "";
       const toolResult = typeof content === "object" ? JSON.stringify(content) : content;
-      parts.push(`[Tool result for ${toolName}]: ${toolResult}`);
+      parts.push(`[Tool result for ${toolName}${idSuffix}]: ${toolResult}`);
     } else {
       parts.push(content ? String(content) : "");
     }
   }
+
   if (hasTools) {
+    let toolConstraint = "Only use tool_call blocks when calling one of the available tools.";
+    if (forcedToolName) {
+      toolConstraint = `IMPORTANT: You MUST call the tool "${forcedToolName}" using a \`\`\`tool_call block. Do NOT call other tools and do NOT reply with plain text alone.`;
+    } else if (requiresToolCall) {
+      toolConstraint =
+        "IMPORTANT: The client requires every response to end with a ```tool_call block (e.g. attempt_completion or ask_followup_question if no other tool is needed). Do NOT reply with plain text alone.";
+    }
+
     parts.push(
       "[System reminder]: Output tool calls strictly as:\n" +
         "```tool_call\n" +
         '{"name": "tool_name", "arguments": {...}}\n' +
         "```\n" +
-        (requiresToolCall
-          ? "IMPORTANT: The client requires every response to end with a ```tool_call block (e.g. attempt_completion or ask_followup_question if no other tool is needed). Do NOT reply with plain text alone."
-          : "Only use tool_call blocks when calling one of the available tools.")
+        toolConstraint
     );
   }
+
   return parts.filter(Boolean).join("\n\n");
 }
 
@@ -196,7 +289,10 @@ export interface ToolCallResult {
   };
 }
 
-function extractBalancedJsonObject(str: string, fromIndex: number): { json: string; endIndex: number } | null {
+function extractBalancedJsonObject(
+  str: string,
+  fromIndex: number
+): { json: string; startIndex: number; endIndex: number } | null {
   const start = str.indexOf("{", fromIndex);
   if (start === -1) return null;
 
@@ -224,14 +320,46 @@ function extractBalancedJsonObject(str: string, fromIndex: number): { json: stri
     } else if (ch === "}") {
       depth--;
       if (depth === 0) {
-        return { json: str.slice(start, i + 1), endIndex: i + 1 };
+        return { json: str.slice(start, i + 1), startIndex: start, endIndex: i + 1 };
       }
     }
   }
   return null;
 }
 
-function tryParseToolCallJson(jsonStr: string): ToolCallResult | null {
+function normalizeToolArguments(args: unknown): string {
+  if (args === undefined || args === null) {
+    return "{}";
+  }
+  if (typeof args === "string") {
+    const trimmed = args.trim();
+    if (!trimmed) return "{}";
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed === "object" && parsed !== null) {
+        return JSON.stringify(parsed);
+      }
+      return JSON.stringify({ value: parsed });
+    } catch {
+      try {
+        const repaired = jsonrepair(trimmed);
+        const parsed = JSON.parse(repaired);
+        if (typeof parsed === "object" && parsed !== null) {
+          return JSON.stringify(parsed);
+        }
+        return JSON.stringify({ value: parsed });
+      } catch {
+        return JSON.stringify({ raw: args });
+      }
+    }
+  }
+  if (typeof args === "object") {
+    return JSON.stringify(args);
+  }
+  return JSON.stringify({ value: args });
+}
+
+function tryParseToolCallJson(jsonStr: string, allowedToolNames?: Set<string>): ToolCallResult | null {
   let candidate = jsonStr.trim();
   try {
     try {
@@ -239,13 +367,16 @@ function tryParseToolCallJson(jsonStr: string): ToolCallResult | null {
     } catch {}
     const data = JSON.parse(candidate);
     if (data && typeof data.name === "string" && data.name) {
-      const args = data.arguments ?? data.parameters ?? {};
+      if (allowedToolNames && allowedToolNames.size > 0 && !allowedToolNames.has(data.name)) {
+        return null;
+      }
+      const args = data.arguments ?? data.parameters ?? data.args ?? {};
       return {
         id: `call_${Math.random().toString(36).substring(2, 10)}`,
         type: "function",
         function: {
           name: data.name,
-          arguments: typeof args === "string" ? args : JSON.stringify(args)
+          arguments: normalizeToolArguments(args)
         }
       };
     }
@@ -256,10 +387,23 @@ function tryParseToolCallJson(jsonStr: string): ToolCallResult | null {
   return null;
 }
 
+function removeSpans(text: string, spans: Array<[number, number]>): string {
+  if (spans.length === 0) return text.trim();
+  let clean = "";
+  let cursor = 0;
+  for (const [start, end] of spans) {
+    clean += text.slice(cursor, start);
+    cursor = end;
+  }
+  clean += text.slice(cursor);
+  return clean.trim();
+}
+
 function extractFencedToolCalls(
   text: string,
   fencePattern: RegExp,
-  requireArgsKey: boolean
+  requireArgsKey: boolean,
+  allowedToolNames?: Set<string>
 ): { cleanText: string; toolCalls: ToolCallResult[] } {
   const toolCalls: ToolCallResult[] = [];
   const spansToRemove: Array<[number, number]> = [];
@@ -271,11 +415,22 @@ function extractFencedToolCalls(
     const balanced = extractBalancedJsonObject(text, afterFence);
     if (!balanced) continue;
 
-    if (requireArgsKey && !balanced.json.includes('"arguments"') && !balanced.json.includes('"parameters"')) {
+    // Ensure there isn't a closing fence between afterFence and the JSON object start
+    const between = text.slice(afterFence, balanced.startIndex);
+    if (between.includes("```")) {
       continue;
     }
 
-    const parsed = tryParseToolCallJson(balanced.json);
+    if (
+      requireArgsKey &&
+      !balanced.json.includes('"arguments"') &&
+      !balanced.json.includes('"parameters"') &&
+      !balanced.json.includes('"args"')
+    ) {
+      continue;
+    }
+
+    const parsed = tryParseToolCallJson(balanced.json, allowedToolNames);
     if (!parsed) continue;
 
     toolCalls.push(parsed);
@@ -290,60 +445,112 @@ function extractFencedToolCalls(
     fencePattern.lastIndex = removeEnd;
   }
 
-  if (spansToRemove.length === 0) {
-    return { cleanText: text.trim(), toolCalls };
-  }
-
-  let clean = "";
-  let cursor = 0;
-  for (const [start, end] of spansToRemove) {
-    clean += text.slice(cursor, start);
-    cursor = end;
-  }
-  clean += text.slice(cursor);
-  return { cleanText: clean.trim(), toolCalls };
+  return { cleanText: removeSpans(text, spansToRemove), toolCalls };
 }
 
-export function parseToolCalls(text: string): { cleanText: string; toolCalls: ToolCallResult[] | null } {
-  const primary = extractFencedToolCalls(text, /```tool_call\s*/gi, false);
+function extractInlineRawToolCalls(
+  text: string,
+  allowedToolNames: Set<string>
+): { cleanText: string; toolCalls: ToolCallResult[] } {
+  if (allowedToolNames.size === 0) {
+    return { cleanText: text.trim(), toolCalls: [] };
+  }
+
+  const toolCalls: ToolCallResult[] = [];
+  const spansToRemove: Array<[number, number]> = [];
+  let cursor = 0;
+
+  while (cursor < text.length) {
+    const balanced = extractBalancedJsonObject(text, cursor);
+    if (!balanced) break;
+
+    const json = balanced.json;
+    const hasKeys =
+      json.includes('"name"') &&
+      (json.includes('"arguments"') || json.includes('"parameters"') || json.includes('"args"'));
+
+    if (hasKeys) {
+      const parsed = tryParseToolCallJson(json, allowedToolNames);
+      if (parsed) {
+        toolCalls.push(parsed);
+        spansToRemove.push([balanced.startIndex, balanced.endIndex]);
+        cursor = balanced.endIndex;
+        continue;
+      }
+    }
+    cursor = balanced.startIndex + 1;
+  }
+
+  return { cleanText: removeSpans(text, spansToRemove), toolCalls };
+}
+
+export function parseToolCalls(
+  text: string,
+  allowedTools?: ToolDefinition[] | null
+): { cleanText: string; toolCalls: ToolCallResult[] | null } {
+  const allowedNames = getAllowedToolNames(allowedTools);
+
+  const primary = extractFencedToolCalls(text, /```tool_call\s*/gi, false, allowedNames);
   if (primary.toolCalls.length > 0) {
     return { cleanText: primary.cleanText, toolCalls: primary.toolCalls };
   }
 
-  // Fallback: also accept ```json blocks containing {"name": ..., "arguments": ...}
-  const jsonFenced = extractFencedToolCalls(text, /```json\s*/gi, true);
+  // Fallback: also accept ```json / ```jsonc blocks containing {"name": ..., "arguments": ...}
+  const jsonFenced = extractFencedToolCalls(text, /```jsonc?\s*/gi, true, allowedNames);
   if (jsonFenced.toolCalls.length > 0) {
     return { cleanText: jsonFenced.cleanText, toolCalls: jsonFenced.toolCalls };
   }
 
+  // Fallback for declared tools: bare ``` or ```javascript/typescript fences containing a valid tool JSON
+  if (allowedNames.size > 0) {
+    const genericFenced = extractFencedToolCalls(
+      text,
+      /```(?:javascript|js|typescript|ts)?[ \t]*\r?\n/gi,
+      true,
+      allowedNames
+    );
+    if (genericFenced.toolCalls.length > 0) {
+      return { cleanText: genericFenced.cleanText, toolCalls: genericFenced.toolCalls };
+    }
+  }
+
   // Fallback: If no tool_call backticks were used but the entire response is a pure JSON tool call with both name and arguments
+  const trimmed = text.trim();
   if (
-    text.trim().startsWith("{") &&
-    text.includes('"name"') &&
-    (text.includes('"arguments"') || text.includes('"parameters"'))
+    trimmed.startsWith("{") &&
+    trimmed.includes('"name"') &&
+    (trimmed.includes('"arguments"') || trimmed.includes('"parameters"') || trimmed.includes('"args"'))
   ) {
-    const parsed = tryParseToolCallJson(text.trim());
+    const parsed = tryParseToolCallJson(trimmed, allowedNames);
     if (parsed) {
       return { cleanText: "", toolCalls: [parsed] };
     }
   }
 
-  return { cleanText: text.trim(), toolCalls: null };
+  // Fallback: Raw JSON tool call(s) preceded by explanatory text when allowedTools are known
+  if (allowedNames.size > 0) {
+    const inline = extractInlineRawToolCalls(text, allowedNames);
+    if (inline.toolCalls.length > 0) {
+      return { cleanText: inline.cleanText, toolCalls: inline.toolCalls };
+    }
+  }
+
+  return { cleanText: trimmed, toolCalls: null };
 }
 
 export function applyRooCodeToolFallback(
   cleanText: string,
   toolCalls: ToolCallResult[] | null,
-  tools?: ToolDefinition[]
+  tools?: ToolDefinition[] | null,
+  toolChoice?: string | Record<string, unknown> | null
 ): ToolCallResult[] | null {
   if (toolCalls && toolCalls.length > 0) return toolCalls;
-  if (!tools || tools.length === 0 || !cleanText.trim()) return null;
+  if (toolChoice === "none") return null;
 
-  const hasAttemptCompletion = tools.some((t) => {
-    const name = t.type === "function" ? t.function?.name || t.name : t.name;
-    return name === "attempt_completion";
-  });
+  const nonThinkText = cleanText.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  if (!tools || tools.length === 0 || !nonThinkText) return null;
 
+  const hasAttemptCompletion = tools.some((t) => getToolName(t) === "attempt_completion");
   if (!hasAttemptCompletion) return null;
 
   return [
@@ -352,10 +559,29 @@ export function applyRooCodeToolFallback(
       type: "function",
       function: {
         name: "attempt_completion",
-        arguments: JSON.stringify({ result: cleanText.trim() })
+        arguments: JSON.stringify({ result: nonThinkText })
       }
     }
   ];
+}
+
+export function applyStopSequences(text: string, stop?: string | string[] | null): { text: string; stopped: boolean } {
+  if (!text || !stop) return { text, stopped: false };
+  const sequences = (Array.isArray(stop) ? stop : [stop]).filter((s) => typeof s === "string" && s.length > 0);
+  if (sequences.length === 0) return { text, stopped: false };
+
+  let earliestIdx = -1;
+  for (const seq of sequences) {
+    const idx = text.indexOf(seq);
+    if (idx !== -1 && (earliestIdx === -1 || idx < earliestIdx)) {
+      earliestIdx = idx;
+    }
+  }
+
+  if (earliestIdx !== -1) {
+    return { text: text.slice(0, earliestIdx), stopped: true };
+  }
+  return { text, stopped: false };
 }
 
 export function cleanJsonResponse(text: string): string {

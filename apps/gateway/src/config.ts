@@ -36,7 +36,7 @@ const configSchema = z.object({
   RETRY_ATTEMPTS: z.coerce.number().int().nonnegative().default(3),
   RETRY_DELAY_SEC: z.coerce.number().int().nonnegative().default(2),
   LOG_LEVEL: z.string().default("info"),
-  DEFAULT_RATE_LIMIT_RPM: z.coerce.number().int().nonnegative().default(15),
+  DEFAULT_RATE_LIMIT_RPM: z.coerce.number().int().nonnegative().default(0),
   ADMIN_API_KEY: z.string().default("sk-personal-gw"),
   TEMPORARY_CHATS: z.preprocess((v) => (v === "false" || v === false ? false : true), z.boolean().default(true)),
   GEMINI_COOKIE: z.string().optional().default(""),

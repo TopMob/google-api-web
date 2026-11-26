@@ -30,9 +30,50 @@ export interface GoogleAccountInfo {
 }
 
 let cachedSessionInfo: Map<string, SessionInfo> = new Map();
+const sessionInfoInFlight: Map<
+  string,
+  Promise<{ bl: string; sn: string; email: string | null; avatarUrl: string | null }>
+> = new Map();
+const rotatedCookiesOverlay: Map<string, string> = new Map();
 const SESSION_INFO_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const cachedAccounts: Map<string, { accounts: GoogleAccountInfo[]; timestamp: number }> = new Map();
 const ACCOUNTS_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+export function recordResponseSetCookies(response: Response): void {
+  try {
+    const getSetCookie = (response.headers as any)?.getSetCookie;
+    const setCookies: string[] = typeof getSetCookie === "function" ? getSetCookie.call(response.headers) : [];
+    for (const sc of setCookies) {
+      const firstPart = sc.split(";")[0];
+      const eqIdx = firstPart.indexOf("=");
+      if (eqIdx > 0) {
+        const name = firstPart.slice(0, eqIdx).trim();
+        const val = firstPart.slice(eqIdx + 1).trim();
+        if (
+          name &&
+          val &&
+          val !== "deleted" &&
+          (name.startsWith("__Secure-1PSID") || name.startsWith("__Secure-3PSID") || name === "NID")
+        ) {
+          rotatedCookiesOverlay.set(name, val);
+        }
+      }
+    }
+  } catch {}
+}
+
+export function applyRotatedCookies(cookieStr: string): { cookieStr: string; sapisid: string | null } {
+  if (!cookieStr || rotatedCookiesOverlay.size === 0) {
+    const parsed = parseRawCookieString(cookieStr);
+    return { cookieStr: parsed.cookieStr, sapisid: parsed.sapisid };
+  }
+  const parsed = parseRawCookieString(cookieStr);
+  for (const [k, v] of rotatedCookiesOverlay.entries()) {
+    parsed.cookiesObj[k] = v;
+  }
+  const rebuilt = buildCookieResult(parsed.cookiesObj);
+  return { cookieStr: rebuilt.cookieStr, sapisid: rebuilt.sapisid };
+}
 
 function buildCookieResult(cookiesObj: Record<string, string>) {
   const cookieStr = Object.entries(cookiesObj)
@@ -392,43 +433,56 @@ export async function getGeminiSessionInfo(
     return { bl: cached.bl, sn: cached.sn, email: cached.email, avatarUrl: cached.avatarUrl };
   }
 
-  const fallbackBl = "boq_assistant-bard-web-server_20260827.05_p0";
-  const prefix = effectiveAuthUser ? `/u/${effectiveAuthUser}` : "";
-  const headers: Record<string, string> = {
-    "User-Agent":
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    Cookie: cookieStr
-  };
-
-  if (sapisid) {
-    headers["Authorization"] = makeSapisidHash(sapisid);
+  const pending = sessionInfoInFlight.get(cacheKey);
+  if (pending) {
+    return pending;
   }
 
-  try {
-    const res = await fetchWithRetry(
-      `https://gemini.google.com${prefix}/app`,
-      { method: "GET", headers },
-      { maxRetries: 2, timeoutMs: 12000 }
-    );
-    const html = await res.text();
-    const blMatch = html.match(/"cfb2h":"([^"]+)"/);
-    const snMatch = html.match(/"SNlM0e":"([^"]+)"/);
-    const emailMatch = html.match(/"oPEP7c":"([^"]+)"/);
-    const avatarMatch = html.match(/https:\/\/lh3\.googleusercontent\.com\/[a-zA-Z0-9_\/=-]+/);
+  const fetchPromise = (async () => {
+    const fallbackBl = "boq_assistant-bard-web-server_20260827.05_p0";
+    const prefix = effectiveAuthUser ? `/u/${effectiveAuthUser}` : "";
+    const headers: Record<string, string> = {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      Cookie: cookieStr
+    };
 
-    const bl = blMatch ? blMatch[1] : fallbackBl;
-    const sn = snMatch ? snMatch[1] : "";
-    const email = emailMatch ? emailMatch[1] : null;
-    const avatarUrl = avatarMatch ? avatarMatch[0] : null;
-
-    if (sn) {
-      cachedSessionInfo.set(cacheKey, { bl, sn, email, avatarUrl, timestamp: now });
+    if (sapisid) {
+      headers["Authorization"] = makeSapisidHash(sapisid);
     }
-    return { bl, sn, email, avatarUrl };
-  } catch (e) {
-    logger.error({ err: e }, "Failed to fetch Gemini session info");
-    return { bl: fallbackBl, sn: "", email: null, avatarUrl: null };
-  }
+
+    try {
+      const res = await fetchWithRetry(
+        `https://gemini.google.com${prefix}/app`,
+        { method: "GET", headers },
+        { maxRetries: 2, timeoutMs: 15000 }
+      );
+      recordResponseSetCookies(res);
+      const html = await res.text();
+      const blMatch = html.match(/"cfb2h":"([^"]+)"/);
+      const snMatch = html.match(/"SNlM0e":"([^"]+)"/);
+      const emailMatch = html.match(/"oPEP7c":"([^"]+)"/);
+      const avatarMatch = html.match(/https:\/\/lh3\.googleusercontent\.com\/[a-zA-Z0-9_\/=-]+/);
+
+      const bl = blMatch ? blMatch[1] : fallbackBl;
+      const sn = snMatch ? snMatch[1] : "";
+      const email = emailMatch ? emailMatch[1] : null;
+      const avatarUrl = avatarMatch ? avatarMatch[0] : null;
+
+      if (sn) {
+        cachedSessionInfo.set(cacheKey, { bl, sn, email, avatarUrl, timestamp: Date.now() });
+      }
+      return { bl, sn, email, avatarUrl };
+    } catch (e) {
+      logger.error({ err: e }, "Failed to fetch Gemini session info");
+      return { bl: fallbackBl, sn: "", email: null, avatarUrl: null };
+    } finally {
+      sessionInfoInFlight.delete(cacheKey);
+    }
+  })();
+
+  sessionInfoInFlight.set(cacheKey, fetchPromise);
+  return fetchPromise;
 }
 
 export async function discoverGoogleAccounts(
@@ -481,6 +535,8 @@ export async function discoverGoogleAccounts(
 export function clearCookieDiscoveryCache(): void {
   cachedCookie = null;
   cachedSessionInfo.clear();
+  sessionInfoInFlight.clear();
+  rotatedCookiesOverlay.clear();
   cachedAccounts.clear();
   cookieValidationCache.clear();
 }

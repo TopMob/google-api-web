@@ -7,6 +7,7 @@ import {
   extractResponseText,
   parseToolCalls,
   applyRooCodeToolFallback,
+  applyStopSequences,
   messagesToPrompt,
   cleanJsonResponse
 } from "../utils/parsers.js";
@@ -40,7 +41,7 @@ export async function chatCompletionController(request: FastifyRequest, reply: F
   }
   const req = parseResult.data;
   const rawModelName = req.model;
-  const { config: cfg, cleanModelName: modelName } = resolveModelConfig(rawModelName);
+  const { config: cfg, cleanModelName: modelName } = resolveModelConfig(rawModelName, req.reasoning_effort);
 
   const auth = await verifyApiKey(request, modelName);
   if (!auth.valid) {
@@ -92,9 +93,10 @@ export async function chatCompletionController(request: FastifyRequest, reply: F
   }
 
   const includeUsage = req.stream_options?.include_usage === true;
+  const hasActiveTools = Boolean(req.tools && req.tools.length > 0 && req.tool_choice !== "none");
 
   if (stream) {
-    if (!req.tools) {
+    if (!hasActiveTools) {
       await handleChatStream(
         prompt,
         modelName,
@@ -105,7 +107,8 @@ export async function chatCompletionController(request: FastifyRequest, reply: F
         startTime,
         abortController.signal,
         fileRefs,
-        includeUsage
+        includeUsage,
+        req.stop
       );
     } else {
       await handleChatStreamWithTools(
@@ -119,7 +122,9 @@ export async function chatCompletionController(request: FastifyRequest, reply: F
         abortController.signal,
         fileRefs,
         includeUsage,
-        req.tools
+        req.tools!,
+        req.tool_choice,
+        req.stop
       );
     }
     return reply;
@@ -148,13 +153,18 @@ export async function chatCompletionController(request: FastifyRequest, reply: F
     let cleanText = text;
     let toolCalls: any = null;
 
-    if (req.tools && req.tools.length > 0 && req.tool_choice !== "none") {
-      const parsed = parseToolCalls(text);
+    if (hasActiveTools) {
+      const parsed = parseToolCalls(text, req.tools);
       cleanText = parsed.cleanText;
-      toolCalls = applyRooCodeToolFallback(cleanText, parsed.toolCalls, req.tools);
+      if (!parsed.toolCalls && req.stop) {
+        cleanText = applyStopSequences(cleanText, req.stop).text;
+      }
+      toolCalls = applyRooCodeToolFallback(cleanText, parsed.toolCalls, req.tools, req.tool_choice);
       if (!parsed.toolCalls && toolCalls) {
         cleanText = "";
       }
+    } else if (req.stop) {
+      cleanText = applyStopSequences(cleanText, req.stop).text;
     }
 
     let contentText = cleanText;
@@ -178,16 +188,10 @@ export async function chatCompletionController(request: FastifyRequest, reply: F
     }
     const finish = toolCalls ? "tool_calls" : "stop";
 
+    const promptTokens = countTokens(prompt);
+    const completionTokens = countTokens(cleanText || "");
     const durationMs = Date.now() - startTime;
-    await logUsage(
-      auth.projectId!,
-      auth.apiKeyId!,
-      modelName,
-      countTokens(prompt),
-      countTokens(cleanText || ""),
-      durationMs,
-      200
-    );
+    await logUsage(auth.projectId!, auth.apiKeyId!, modelName, promptTokens, completionTokens, durationMs, 200);
 
     return {
       id: cid,
@@ -196,9 +200,9 @@ export async function chatCompletionController(request: FastifyRequest, reply: F
       model: modelName,
       choices: [{ index: 0, message: msg, finish_reason: finish }],
       usage: {
-        prompt_tokens: countTokens(prompt),
-        completion_tokens: countTokens(cleanText || ""),
-        total_tokens: countTokens(prompt) + countTokens(cleanText || "")
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
+        total_tokens: promptTokens + completionTokens
       }
     };
   } catch (e) {

@@ -220,8 +220,20 @@ function generateDescription(name: string): string {
   return "Google Gemini Model";
 }
 
-export function resolveModelConfig(rawModelName: string): { config: ModelConfig; cleanModelName: string } {
+export function resolveModelConfig(
+  rawModelName: string,
+  reasoningEffort?: string | null
+): { config: ModelConfig; cleanModelName: string } {
   let modelName = rawModelName.trim();
+  // Strip optional provider prefix (e.g. "gemini-web2api/gemini-4-carbon" or "openai/gemini-4-hydrogen")
+  if (modelName.includes("/")) {
+    const slashParts = modelName.split("/");
+    const lastSegment = slashParts[slashParts.length - 1];
+    if (lastSegment) {
+      modelName = lastSegment;
+    }
+  }
+
   let thinkOverride: number | null = null;
 
   if (modelName.includes("@think=")) {
@@ -231,6 +243,11 @@ export function resolveModelConfig(rawModelName: string): { config: ModelConfig;
     if (!isNaN(val)) {
       thinkOverride = val;
     }
+  } else if (reasoningEffort) {
+    const effort = reasoningEffort.toLowerCase().trim();
+    if (effort === "high" || effort === "xhigh") thinkOverride = 0;
+    else if (effort === "medium") thinkOverride = 2;
+    else if (effort === "low" || effort === "minimal" || effort === "none") thinkOverride = 4;
   }
 
   const allModels = getModels();
