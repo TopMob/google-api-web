@@ -114,9 +114,10 @@ export async function verifyApiKey(request: FastifyRequest, model: string): Prom
     // respect disabling/deleting the default key in the Web UI store.
     const isUsingBuiltInDefault = !envAdminKey && adminKey === "sk-personal-gw";
     let defaultKeyDisabledInStore = false;
+    let defaultEntry: ReturnType<typeof store.getApiKeys>[number] | undefined;
     if (isUsingBuiltInDefault) {
       const allKeys = store.getApiKeys();
-      const defaultEntry = allKeys.find((k) => k.id === "00000000-0000-0000-0000-000000000001");
+      defaultEntry = allKeys.find((k) => k.id === "00000000-0000-0000-0000-000000000001");
       if (defaultEntry && !defaultEntry.active) {
         defaultKeyDisabledInStore = true;
       } else if (!defaultEntry && allKeys.length > 0) {
@@ -129,7 +130,7 @@ export async function verifyApiKey(request: FastifyRequest, model: string): Prom
         valid: true,
         projectId: "00000000-0000-0000-0000-000000000000",
         apiKeyId: "00000000-0000-0000-0000-000000000001",
-        temporaryChats: TEMPORARY_CHATS
+        temporaryChats: defaultEntry?.temporary_chats ?? TEMPORARY_CHATS
       };
     }
   }

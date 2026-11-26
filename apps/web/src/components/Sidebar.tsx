@@ -12,11 +12,20 @@ interface SidebarProps {
   setActiveTab: (tab: TabType) => void;
   gatewayStatus: "online" | "warning" | "offline" | "checking";
   cookieValid: boolean | null;
+  cookieHasFile: boolean | null;
   lang: Language;
   setLang: (lang: Language) => void;
 }
 
-export default function Sidebar({ activeTab, setActiveTab, gatewayStatus, cookieValid, lang, setLang }: SidebarProps) {
+export default function Sidebar({
+  activeTab,
+  setActiveTab,
+  gatewayStatus,
+  cookieValid,
+  cookieHasFile,
+  lang,
+  setLang
+}: SidebarProps) {
   const t = translations[lang];
 
   const tabs: Array<{
@@ -112,7 +121,15 @@ export default function Sidebar({ activeTab, setActiveTab, gatewayStatus, cookie
                       : "text-[#8e95a8]"
                 }`}
               >
-                {cookieValid === true ? t.cookieOk : cookieValid === false ? t.cookieMissing : "—"}
+                {cookieValid === true
+                  ? t.cookieOk
+                  : cookieValid === false
+                    ? cookieHasFile
+                      ? t.cookieExpired
+                      : t.cookieMissing
+                    : cookieHasFile === false
+                      ? t.cookieMissing
+                      : "—"}
               </span>
             </div>
           </div>

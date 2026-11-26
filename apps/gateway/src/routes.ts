@@ -16,6 +16,7 @@ export function registerRoutes(server: FastifyInstance) {
   server.get("/health", async (_request: FastifyRequest, reply: FastifyReply) => {
     const loaded = loadCookie();
     const cbStatus = geminiCircuitBreaker.getStatus();
+    const cookieHasFile = Boolean(loaded.cookieStr);
     let cookieValid: boolean | null = null;
 
     if (loaded.cookieStr) {
@@ -24,12 +25,13 @@ export function registerRoutes(server: FastifyInstance) {
         return reply.status(200).send({
           status: "warning",
           cookieValid: false,
+          cookieHasFile,
           circuitBreaker: cbStatus,
           message: "Gemini session cookie has expired or is invalid. Please refresh the cookie file."
         });
       }
     }
-    return { status: "ok", cookieValid, circuitBreaker: cbStatus };
+    return { status: "ok", cookieValid, cookieHasFile, circuitBreaker: cbStatus };
   });
 
   server.get("/", async () => {

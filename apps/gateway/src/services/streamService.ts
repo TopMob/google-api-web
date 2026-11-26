@@ -15,7 +15,7 @@ import {
   ToolDefinition
 } from "../utils/parsers.js";
 import { logger } from "../logger.js";
-import { invalidateGeminiSessionCache, recordResponseSetCookies } from "../utils/cookie.js";
+import { recordResponseSetCookies } from "../utils/cookie.js";
 import {
   normalizeError,
   isUpstreamRateLimitMessage,
@@ -95,11 +95,11 @@ async function retryOnEmptyUpstream(
   modelName: string,
   reply: FastifyReply,
   signal: AbortSignal | undefined,
-  fn: () => Promise<void>
+  fn: (attempt: number) => Promise<void>
 ): Promise<void> {
   for (let attempt = 0; attempt <= MAX_EMPTY_STREAM_RETRIES; attempt++) {
     try {
-      await fn();
+      await fn(attempt);
       return;
     } catch (e: unknown) {
       const isEmpty = e instanceof UpstreamEmptyResponseError;
@@ -115,10 +115,9 @@ async function retryOnEmptyUpstream(
         throw e;
       }
 
-      invalidateGeminiSessionCache();
       logger.warn(
         { attempt: attempt + 1, maxRetries: MAX_EMPTY_STREAM_RETRIES, model: modelName },
-        "Upstream stream returned empty response, invalidating session cache and retrying..."
+        "Upstream stream returned empty response, retrying..."
       );
       await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
     }
@@ -218,7 +217,7 @@ export async function handleChatStream(
   const customCookie = auth.customCookie;
 
   try {
-    await retryOnEmptyUpstream(modelName, reply, signal, async () => {
+    await retryOnEmptyUpstream(modelName, reply, signal, async (attempt) => {
       let responseText = "";
       const { url, headers, body } = await buildGeminiRequest(
         prompt,
@@ -226,17 +225,21 @@ export async function handleChatStream(
         cfg.think,
         customCookie,
         fileRefs,
-        auth.temporaryChats
+        auth.temporaryChats,
+        attempt === 1
       );
 
       const response = await geminiCircuitBreaker.execute(async () => {
-        return await fetchWithRetry(url, {
-          method: "POST",
-          headers,
-          body,
-          keepalive: true,
-          signal
-        });
+        return await fetchWithRetry(
+          url,
+          {
+            method: "POST",
+            headers,
+            body,
+            signal
+          },
+          { timeoutMs: 60000 }
+        );
       });
       recordResponseSetCookies(response);
 
@@ -274,6 +277,85 @@ export async function handleChatStream(
         });
       };
 
+      const processLine = (line: string) => {
+        const bardCode = detectBardErrorInfo(line);
+        if (bardCode) {
+          throw new UpstreamRejectedError(`Gemini upstream rejected request: BardErrorInfo [${bardCode}]`, bardCode);
+        }
+        if (line.includes('["di",') || line.includes('["e",') || line.includes('"af.httprm"')) {
+          isCompleted = true;
+          return;
+        }
+
+        if (!line.includes('"wrb.fr"') || line.length < 50) return;
+        try {
+          const innerStr = JSON.parse(line)[0][2];
+          if (!innerStr || innerStr.length < 20) return;
+          const inner = JSON.parse(innerStr);
+          if (Array.isArray(inner)) {
+            const candidates = [inner[4], inner[0]].filter(Boolean);
+            for (const candidate of candidates) {
+              if (Array.isArray(candidate)) {
+                let fullText = "";
+                let candidateFinished = false;
+
+                for (const part of candidate) {
+                  if (Array.isArray(part)) {
+                    if (Array.isArray(part[1])) {
+                      fullText += part[1].filter((t: unknown) => typeof t === "string").join("");
+                    }
+                    const statusArr = part[8];
+                    if (Array.isArray(statusArr) && statusArr.includes(2)) {
+                      candidateFinished = true;
+                    }
+                  }
+                }
+
+                if (fullText.trim()) {
+                  const rawCleaned = cleanGeminiText(fullText);
+                  const stopApplied = applyStopSequences(rawCleaned, stop);
+                  const cleanedText = stopApplied.text;
+                  if (stopApplied.stopped) {
+                    stoppedBySequence = true;
+                    candidateFinished = true;
+                  }
+
+                  if (isUpstreamRateLimitMessage(cleanedText)) {
+                    throw new UpstreamRateLimitError();
+                  }
+
+                  if (cleanedText.length > prevCleanedText.length || stoppedBySequence) {
+                    responseText = cleanedText;
+                    prevCleanedText = cleanedText;
+
+                    if (!isPotentialRateLimitPrefix(cleanedText)) {
+                      const delta = cleanedText.startsWith(sentText)
+                        ? cleanedText.slice(sentText.length)
+                        : cleanedText.length > sentText.length
+                          ? cleanedText.slice(sentText.length)
+                          : "";
+                      if (delta) {
+                        emitDelta(delta);
+                        sentText = cleanedText;
+                      }
+                    }
+                  }
+
+                  if (candidateFinished) {
+                    isCompleted = true;
+                  }
+                  break;
+                }
+              }
+            }
+          }
+        } catch (parseErr) {
+          if (parseErr instanceof UpstreamRateLimitError || parseErr instanceof UpstreamRejectedError) {
+            throw parseErr;
+          }
+        }
+      };
+
       try {
         while (!isCompleted) {
           if (signal?.aborted) {
@@ -284,94 +366,23 @@ export async function handleChatStream(
           }
 
           const { done, value } = await readChunkWithTimeout(reader, undefined, signal);
-          if (done) break;
+          if (done) {
+            buffer += decoder.decode();
+            if (buffer.trim()) {
+              for (const tailLine of buffer.split("\n")) {
+                processLine(tailLine);
+                if (isCompleted) break;
+              }
+            }
+            break;
+          }
 
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split("\n");
           buffer = lines.pop() || "";
 
           for (const line of lines) {
-            const bardCode = detectBardErrorInfo(line);
-            if (bardCode) {
-              throw new UpstreamRejectedError(
-                `Gemini upstream rejected request: BardErrorInfo [${bardCode}]`,
-                bardCode
-              );
-            }
-            // Check for Google End-Of-Stream markers
-            if (line.includes('["di",') || line.includes('["e",') || line.includes('"af.httprm"')) {
-              isCompleted = true;
-              break;
-            }
-
-            if (!line.includes('"wrb.fr"') || line.length < 50) continue;
-            try {
-              const innerStr = JSON.parse(line)[0][2];
-              if (!innerStr || innerStr.length < 20) continue;
-              const inner = JSON.parse(innerStr);
-              if (Array.isArray(inner)) {
-                const candidates = [inner[4], inner[0]].filter(Boolean);
-                for (const candidate of candidates) {
-                  if (Array.isArray(candidate)) {
-                    let fullText = "";
-                    let candidateFinished = false;
-
-                    for (const part of candidate) {
-                      if (Array.isArray(part)) {
-                        if (Array.isArray(part[1])) {
-                          fullText += part[1].filter((t: unknown) => typeof t === "string").join("");
-                        }
-                        const statusArr = part[8];
-                        if (Array.isArray(statusArr) && statusArr.includes(2)) {
-                          candidateFinished = true;
-                        }
-                      }
-                    }
-
-                    if (fullText.trim()) {
-                      const rawCleaned = cleanGeminiText(fullText);
-                      const stopApplied = applyStopSequences(rawCleaned, stop);
-                      const cleanedText = stopApplied.text;
-                      if (stopApplied.stopped) {
-                        stoppedBySequence = true;
-                        candidateFinished = true;
-                      }
-
-                      if (isUpstreamRateLimitMessage(cleanedText)) {
-                        throw new UpstreamRateLimitError();
-                      }
-
-                      if (cleanedText.length > prevCleanedText.length || stoppedBySequence) {
-                        responseText = cleanedText;
-                        prevCleanedText = cleanedText;
-
-                        if (!isPotentialRateLimitPrefix(cleanedText)) {
-                          const delta = cleanedText.startsWith(sentText)
-                            ? cleanedText.slice(sentText.length)
-                            : cleanedText.length > sentText.length
-                              ? cleanedText.slice(sentText.length)
-                              : "";
-                          if (delta) {
-                            emitDelta(delta);
-                            sentText = cleanedText;
-                          }
-                        }
-                      }
-
-                      if (candidateFinished) {
-                        isCompleted = true;
-                      }
-                      break;
-                    }
-                  }
-                }
-              }
-            } catch (parseErr) {
-              if (parseErr instanceof UpstreamRateLimitError || parseErr instanceof UpstreamRejectedError) {
-                throw parseErr;
-              }
-            }
-
+            processLine(line);
             if (isCompleted) break;
           }
         }
@@ -463,7 +474,7 @@ export async function handleChatStreamWithTools(
   );
 
   try {
-    await retryOnEmptyUpstream(modelName, reply, signal, async () => {
+    await retryOnEmptyUpstream(modelName, reply, signal, async (attempt) => {
       let responseText = "";
       let sentText = "";
       let sentRole = false;
@@ -474,16 +485,20 @@ export async function handleChatStreamWithTools(
         cfg.think,
         customCookie,
         fileRefs,
-        auth.temporaryChats
+        auth.temporaryChats,
+        attempt === 1
       );
       const response = await geminiCircuitBreaker.execute(async () => {
-        return await fetchWithRetry(url, {
-          method: "POST",
-          headers,
-          body,
-          keepalive: true,
-          signal
-        });
+        return await fetchWithRetry(
+          url,
+          {
+            method: "POST",
+            headers,
+            body,
+            signal
+          },
+          { timeoutMs: 60000 }
+        );
       });
       recordResponseSetCookies(response);
 
@@ -517,6 +532,81 @@ export async function handleChatStreamWithTools(
         });
       };
 
+      const processToolLine = (line: string) => {
+        const bardCode = detectBardErrorInfo(line);
+        if (bardCode) {
+          throw new UpstreamRejectedError(`Gemini upstream rejected request: BardErrorInfo [${bardCode}]`, bardCode);
+        }
+        if (line.includes('["di",') || line.includes('["e",') || line.includes('"af.httprm"')) {
+          isCompleted = true;
+          return;
+        }
+
+        if (!line.includes('"wrb.fr"') || line.length < 50) return;
+        try {
+          const parsedLine = JSON.parse(line);
+          const innerStr = parsedLine?.[0]?.[2];
+          if (!innerStr || typeof innerStr !== "string") return;
+
+          const inner = JSON.parse(innerStr);
+          if (Array.isArray(inner)) {
+            const candidates = [inner[4], inner[0]].filter(Boolean);
+            for (const candidate of candidates) {
+              if (Array.isArray(candidate)) {
+                let fullText = "";
+                let candidateFinished = false;
+
+                for (const part of candidate) {
+                  if (Array.isArray(part)) {
+                    if (Array.isArray(part[1])) {
+                      fullText += part[1].filter((t: unknown) => typeof t === "string").join("");
+                    }
+                    const statusArr = part[8];
+                    if (Array.isArray(statusArr) && statusArr.includes(2)) {
+                      candidateFinished = true;
+                    }
+                  }
+                }
+
+                if (fullText.trim()) {
+                  const cleanedText = cleanGeminiText(fullText);
+                  if (isUpstreamRateLimitMessage(cleanedText)) {
+                    throw new UpstreamRateLimitError();
+                  }
+
+                  if (cleanedText.length > responseText.length) {
+                    responseText = cleanedText;
+
+                    if (!hasAttemptCompletion && !isPotentialRateLimitPrefix(responseText)) {
+                      const flushLimit = getSafeFlushLimit(responseText, sentText.length, tools);
+                      if (flushLimit > sentText.length) {
+                        const targetSlice = responseText.slice(0, flushLimit);
+                        const delta = targetSlice.startsWith(sentText)
+                          ? targetSlice.slice(sentText.length)
+                          : targetSlice.slice(sentText.length);
+                        if (delta) {
+                          emitContentDelta(delta);
+                          sentText = targetSlice;
+                        }
+                      }
+                    }
+                  }
+
+                  if (candidateFinished) {
+                    isCompleted = true;
+                  }
+                  break;
+                }
+              }
+            }
+          }
+        } catch (parseErr) {
+          if (parseErr instanceof UpstreamRateLimitError || parseErr instanceof UpstreamRejectedError) {
+            throw parseErr;
+          }
+        }
+      };
+
       try {
         while (!isCompleted) {
           if (signal?.aborted) {
@@ -527,89 +617,23 @@ export async function handleChatStreamWithTools(
           }
 
           const { done, value } = await readChunkWithTimeout(reader, undefined, signal);
-          if (done) break;
+          if (done) {
+            buffer += decoder.decode();
+            if (buffer.trim()) {
+              for (const tailLine of buffer.split("\n")) {
+                processToolLine(tailLine);
+                if (isCompleted) break;
+              }
+            }
+            break;
+          }
 
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split("\n");
           buffer = lines.pop() || "";
 
           for (const line of lines) {
-            const bardCode = detectBardErrorInfo(line);
-            if (bardCode) {
-              throw new UpstreamRejectedError(
-                `Gemini upstream rejected request: BardErrorInfo [${bardCode}]`,
-                bardCode
-              );
-            }
-            if (line.includes('["di",') || line.includes('["e",') || line.includes('"af.httprm"')) {
-              isCompleted = true;
-              break;
-            }
-
-            if (!line.includes('"wrb.fr"') || line.length < 50) continue;
-            try {
-              const parsedLine = JSON.parse(line);
-              const innerStr = parsedLine?.[0]?.[2];
-              if (!innerStr || typeof innerStr !== "string") continue;
-
-              const inner = JSON.parse(innerStr);
-              if (Array.isArray(inner)) {
-                const candidates = [inner[4], inner[0]].filter(Boolean);
-                for (const candidate of candidates) {
-                  if (Array.isArray(candidate)) {
-                    let fullText = "";
-                    let candidateFinished = false;
-
-                    for (const part of candidate) {
-                      if (Array.isArray(part)) {
-                        if (Array.isArray(part[1])) {
-                          fullText += part[1].filter((t: unknown) => typeof t === "string").join("");
-                        }
-                        const statusArr = part[8];
-                        if (Array.isArray(statusArr) && statusArr.includes(2)) {
-                          candidateFinished = true;
-                        }
-                      }
-                    }
-
-                    if (fullText.trim()) {
-                      const cleanedText = cleanGeminiText(fullText);
-                      if (isUpstreamRateLimitMessage(cleanedText)) {
-                        throw new UpstreamRateLimitError();
-                      }
-
-                      if (cleanedText.length > responseText.length) {
-                        responseText = cleanedText;
-
-                        if (!hasAttemptCompletion && !isPotentialRateLimitPrefix(responseText)) {
-                          const flushLimit = getSafeFlushLimit(responseText, sentText.length, tools);
-                          if (flushLimit > sentText.length) {
-                            const targetSlice = responseText.slice(0, flushLimit);
-                            const delta = targetSlice.startsWith(sentText)
-                              ? targetSlice.slice(sentText.length)
-                              : targetSlice.slice(sentText.length);
-                            if (delta) {
-                              emitContentDelta(delta);
-                              sentText = targetSlice;
-                            }
-                          }
-                        }
-                      }
-
-                      if (candidateFinished) {
-                        isCompleted = true;
-                      }
-                      break;
-                    }
-                  }
-                }
-              }
-            } catch (parseErr) {
-              if (parseErr instanceof UpstreamRateLimitError || parseErr instanceof UpstreamRejectedError) {
-                throw parseErr;
-              }
-            }
-
+            processToolLine(line);
             if (isCompleted) break;
           }
         }

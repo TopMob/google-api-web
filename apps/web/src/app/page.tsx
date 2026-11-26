@@ -39,6 +39,7 @@ export default function Home() {
   // Gateway & model state
   const [gatewayStatus, setGatewayStatus] = useState<"online" | "warning" | "offline" | "checking">("checking");
   const [cookieValid, setCookieValid] = useState<boolean | null>(null);
+  const [cookieHasFile, setCookieHasFile] = useState<boolean | null>(null);
   const [gatewayUrl, setGatewayUrl] = useState("http://127.0.0.1:8081");
   const [models, setModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>("");
@@ -114,6 +115,9 @@ export default function Home() {
         if (typeof data.cookieValid === "boolean" || data.cookieValid === null) {
           setCookieValid(data.cookieValid);
         }
+        if (typeof data.cookieHasFile === "boolean") {
+          setCookieHasFile(data.cookieHasFile);
+        }
       } else {
         setGatewayStatus("offline");
       }
@@ -144,6 +148,7 @@ export default function Home() {
       if (res.ok) {
         const data: CookieStatusData = await res.json();
         setCookieStatus(data);
+        setCookieHasFile(data.hasFile);
         if (typeof data.isValid === "boolean" || data.isValid === null) {
           setCookieValid(data.isValid);
         }
@@ -469,6 +474,14 @@ export default function Home() {
     }
   };
 
+  const activeKeyObj = apiKeys.find((k) => k.key === activeKey);
+  const activeTemporaryChats = activeKeyObj?.temporary_chats ?? true;
+
+  const handleToggleActiveTemporaryChats = () => {
+    if (!activeKeyObj) return;
+    void handleToggleTemporaryChats(activeKeyObj.id, activeKeyObj.temporary_chats ?? true);
+  };
+
   return (
     <div className="flex h-screen bg-[#0a0b0e] overflow-hidden text-[#eceef4]">
       <Sidebar
@@ -476,6 +489,7 @@ export default function Home() {
         setActiveTab={setActiveTab}
         gatewayStatus={gatewayStatus}
         cookieValid={cookieValid}
+        cookieHasFile={cookieHasFile}
         lang={lang}
         setLang={handleSetLang}
       />
@@ -489,6 +503,12 @@ export default function Home() {
           fetchModels={fetchModels}
           thinkDepth={thinkDepth}
           setThinkDepth={setThinkDepth}
+          temporaryChats={activeTemporaryChats}
+          canToggleTemporaryChats={Boolean(activeKeyObj)}
+          onToggleTemporaryChats={handleToggleActiveTemporaryChats}
+          hasMessages={messages.length > 0}
+          isLoading={isLoading}
+          onClearChat={handleClear}
           lang={lang}
         />
 
@@ -502,7 +522,6 @@ export default function Home() {
             onGoToConnect={() => setActiveTab("connect")}
             handleSubmit={handleSubmit}
             handleStop={handleStop}
-            handleClear={handleClear}
             lang={lang}
           />
         ) : null}

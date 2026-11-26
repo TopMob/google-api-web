@@ -133,7 +133,7 @@ async function getPageTokens(cookieStr?: string, sapisid?: string | null): Promi
     const res = await fetchWithRetry(
       "https://gemini.google.com/app",
       { method: "GET", headers },
-      { maxRetries: 2, timeoutMs: 15000 }
+      { maxRetries: 1, timeoutMs: 8000 }
     );
     const html = await res.text();
     const pushMatch = html.match(/"qKIAYe":"([^"]+)"/);

@@ -73,7 +73,7 @@ function renderInlineFormatting(text: string): React.ReactNode[] {
       return (
         <code
           key={i}
-          className="px-1.5 py-0.5 mx-0.5 rounded bg-[#171a22] border border-[#252a38] text-[#9ec2ff] font-mono text-[12px]"
+          className="px-1.5 py-0.5 mx-0.5 rounded bg-[#171a22] border border-[#252a38] text-[#9ec2ff] font-mono text-[12px] [overflow-wrap:anywhere]"
         >
           {tok.slice(1, -1)}
         </code>
@@ -204,11 +204,11 @@ export default function MarkdownContent({ content, thinkingLabel, copyLabel, cop
   const blocks = splitThinkingAndCode(content);
 
   if (blocks.length === 0) {
-    return <span className="whitespace-pre-wrap">{content}</span>;
+    return <span className="whitespace-pre-wrap [overflow-wrap:anywhere]">{content}</span>;
   }
 
   return (
-    <div className="space-y-2 text-[14px] leading-relaxed text-[#d9dde8]">
+    <div className="space-y-2 text-[14px] leading-relaxed text-[#d9dde8] min-w-0">
       {blocks.map((block, idx) => {
         if (block.type === "think") {
           return <ThinkBlock key={idx} content={block.content} label={thinkingLabel} />;
@@ -227,35 +227,37 @@ export default function MarkdownContent({ content, thinkingLabel, copyLabel, cop
 
         const lines = block.content.split("\n");
         return (
-          <div key={idx} className="space-y-1.5">
+          <div key={idx} className="space-y-1.5 min-w-0">
             {lines.map((line, lIdx) => {
               const trimmed = line.trim();
               if (!trimmed) return <div key={lIdx} className="h-1" />;
 
               if (trimmed.startsWith("### ")) {
                 return (
-                  <h4 key={lIdx} className="text-sm font-semibold text-[#eceef4] pt-1.5">
+                  <h4 key={lIdx} className="text-sm font-semibold text-[#eceef4] pt-1.5 [overflow-wrap:anywhere]">
                     {renderInlineFormatting(trimmed.slice(4))}
                   </h4>
                 );
               }
               if (trimmed.startsWith("## ")) {
                 return (
-                  <h3 key={lIdx} className="text-base font-semibold text-[#eceef4] pt-2">
+                  <h3 key={lIdx} className="text-base font-semibold text-[#eceef4] pt-2 [overflow-wrap:anywhere]">
                     {renderInlineFormatting(trimmed.slice(3))}
                   </h3>
                 );
               }
               if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
                 return (
-                  <div key={lIdx} className="flex items-start gap-2 pl-2">
+                  <div key={lIdx} className="flex items-start gap-2 pl-2 min-w-0">
                     <span className="text-[#4f8cff] mt-1.5 text-[10px]">•</span>
-                    <span className="flex-1">{renderInlineFormatting(trimmed.slice(2))}</span>
+                    <span className="flex-1 min-w-0 [overflow-wrap:anywhere]">
+                      {renderInlineFormatting(trimmed.slice(2))}
+                    </span>
                   </div>
                 );
               }
               return (
-                <p key={lIdx} className="whitespace-pre-wrap">
+                <p key={lIdx} className="whitespace-pre-wrap [overflow-wrap:anywhere]">
                   {renderInlineFormatting(line)}
                 </p>
               );

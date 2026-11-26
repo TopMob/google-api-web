@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import fastify from "fastify";
+import fastify, { FastifyRequest } from "fastify";
 import { registerRoutes } from "../src/routes.js";
 import { isPrivateIpAddress, validateRemoteImageUrl, extractImagesFromMessages } from "../src/services/multimodal.js";
 import { LocalStore, store } from "../src/db.js";
@@ -355,17 +355,54 @@ describe("Temporary Chats & Clear Usage Logs", () => {
   });
 
   it("should set temporary chat persistence flags [41]=[1] and [45]=1 by default in Gemini payload", async () => {
-    const reqTemp = await buildGeminiRequest("hi", 1, 4, "__Secure-1PSID=abc; SAPISID=xyz", undefined, true);
-    const paramsTemp = new URLSearchParams(reqTemp.body);
-    const innerTemp = JSON.parse(JSON.parse(paramsTemp.get("f.req")!)[1]);
-    expect(innerTemp[41]).toEqual([1]);
-    expect(innerTemp[45]).toBe(1);
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response('"SNlM0e":"test_sn"', { status: 200 }));
+    try {
+      const reqTemp = await buildGeminiRequest("hi", 1, 4, "__Secure-1PSID=abc; SAPISID=xyz", undefined, true);
+      const paramsTemp = new URLSearchParams(reqTemp.body);
+      expect(paramsTemp.get("at")).toBe("test_sn");
+      const innerTemp = JSON.parse(JSON.parse(paramsTemp.get("f.req")!)[1]);
+      expect(innerTemp[41]).toEqual([1]);
+      expect(innerTemp[45]).toBe(1);
 
-    const reqPersist = await buildGeminiRequest("hi", 1, 4, "__Secure-1PSID=abc; SAPISID=xyz", undefined, false);
-    const paramsPersist = new URLSearchParams(reqPersist.body);
-    const innerPersist = JSON.parse(JSON.parse(paramsPersist.get("f.req")!)[1]);
-    expect(innerPersist[41]).toEqual([2]);
-    expect(innerPersist[45]).toBeNull();
+      const reqPersist = await buildGeminiRequest("hi", 1, 4, "__Secure-1PSID=abc; SAPISID=xyz", undefined, false);
+      const paramsPersist = new URLSearchParams(reqPersist.body);
+      const innerPersist = JSON.parse(JSON.parse(paramsPersist.get("f.req")!)[1]);
+      expect(innerPersist[41]).toEqual([2]);
+      expect(innerPersist[45]).toBeNull();
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  it("should respect temporary_chats setting on the default sk-personal-gw key in verifyApiKey", async () => {
+    const getKeysSpy = vi.spyOn(store, "getApiKeys").mockReturnValue([
+      {
+        id: "00000000-0000-0000-0000-000000000001",
+        key: "sk-personal-gw",
+        name: "Default Key",
+        project_id: "00000000-0000-0000-0000-000000000000",
+        active: true,
+        allowed_models: null,
+        daily_requests_limit: null,
+        daily_tokens_limit: null,
+        rate_limit_rpm: null,
+        temporary_chats: false,
+        expires_at: null,
+        created_at: new Date().toISOString()
+      }
+    ]);
+    try {
+      const authRes = await verifyApiKey(
+        { headers: { authorization: "Bearer sk-personal-gw" } } as unknown as FastifyRequest,
+        "gemini-4-hydrogen"
+      );
+      expect(authRes.valid).toBe(true);
+      expect(authRes.temporaryChats).toBe(false);
+    } finally {
+      getKeysSpy.mockRestore();
+    }
   });
 });
 

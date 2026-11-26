@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useCallback, useSyncExternalStore } from "react";
 import Image from "next/image";
 import {
   Copy,
@@ -14,9 +14,49 @@ import {
   ShieldCheck,
   AlertTriangle,
   User,
-  Upload
+  Upload,
+  X,
+  HelpCircle
 } from "lucide-react";
 import { translations, Language } from "../utils/i18n";
+
+function useDismissedFlag(storageKey: string): [boolean, (dismissed: boolean) => void] {
+  const subscribe = useCallback(
+    (callback: () => void) => {
+      const onCustom = () => callback();
+      window.addEventListener("storage", callback);
+      window.addEventListener(`dismiss-${storageKey}`, onCustom);
+      return () => {
+        window.removeEventListener("storage", callback);
+        window.removeEventListener(`dismiss-${storageKey}`, onCustom);
+      };
+    },
+    [storageKey]
+  );
+
+  const getSnapshot = useCallback(() => {
+    try {
+      return localStorage.getItem(storageKey) === "1";
+    } catch {
+      return false;
+    }
+  }, [storageKey]);
+
+  const dismissed = useSyncExternalStore(subscribe, getSnapshot, () => false);
+
+  const setDismissed = useCallback(
+    (next: boolean) => {
+      try {
+        if (next) localStorage.setItem(storageKey, "1");
+        else localStorage.removeItem(storageKey);
+        window.dispatchEvent(new Event(`dismiss-${storageKey}`));
+      } catch {}
+    },
+    [storageKey]
+  );
+
+  return [dismissed, setDismissed];
+}
 
 export interface ProjectItem {
   id: string;
@@ -169,6 +209,8 @@ export default function ConnectTab({
   const [cookieFeedback, setCookieFeedback] = useState<{ success: boolean; message: string } | null>(null);
   const [switchingAccount, setSwitchingAccount] = useState<string | null>(null);
   const cookieFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [howToDismissed, setHowToDismissed] = useDismissedFlag("gemini_web2api_dismissed_cookie_howto");
+  const [savedHintDismissed, setSavedHintDismissed] = useDismissedFlag("gemini_web2api_dismissed_cookie_hint");
 
   const getSnippet = (): { hint?: string; code: string } => {
     switch (client) {
@@ -345,8 +387,24 @@ export default function ConnectTab({
       const entries = data?.log?.entries;
       if (!Array.isArray(entries)) return trimmed;
 
+      interface HarCookieOrHeader {
+        name?: unknown;
+        value?: unknown;
+      }
+      interface HarEntry {
+        request?: {
+          url?: unknown;
+          cookies?: HarCookieOrHeader[];
+          headers?: HarCookieOrHeader[];
+        };
+        response?: {
+          cookies?: HarCookieOrHeader[];
+          headers?: HarCookieOrHeader[];
+        };
+      }
+
       const cookiesMap = new Map<string, string>();
-      const collect = (entry: any) => {
+      const collect = (entry: HarEntry) => {
         for (const c of entry?.request?.cookies || []) {
           if (c?.name && c?.value) cookiesMap.set(String(c.name), String(c.value));
         }
@@ -378,7 +436,7 @@ export default function ConnectTab({
         }
       };
 
-      const getHost = (entry: any): string => {
+      const getHost = (entry: HarEntry): string => {
         try {
           return typeof entry?.request?.url === "string" ? new URL(entry.request.url).hostname.toLowerCase() : "";
         } catch {
@@ -386,7 +444,8 @@ export default function ConnectTab({
         }
       };
 
-      const googleEntries = entries.filter((e: any) => {
+      const typedEntries = entries as HarEntry[];
+      const googleEntries = typedEntries.filter((e) => {
         const h = getHost(e);
         return h === "google.com" || h.endsWith(".google.com");
       });
@@ -399,7 +458,7 @@ export default function ConnectTab({
           if (getHost(e) === "gemini.google.com") collect(e);
         }
       } else {
-        for (const e of entries) collect(e);
+        for (const e of typedEntries) collect(e);
       }
 
       if (cookiesMap.size === 0) return trimmed;
@@ -455,10 +514,7 @@ export default function ConnectTab({
       <div className="max-w-4xl mx-auto space-y-6">
         {/* 1. Connection Endpoints (Single Canonical Place) */}
         <section className="rounded-xl bg-[#111319] border border-[#222633] p-5 space-y-4">
-          <div>
-            <h3 className="text-sm font-semibold text-[#eceef4]">{t.connectTitle}</h3>
-            <p className="text-xs text-[#8e95a8] mt-0.5">{t.connectSubtitle}</p>
-          </div>
+          <h3 className="text-sm font-semibold text-[#eceef4]">{t.connectTitle}</h3>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="rounded-lg bg-[#0d0f14] border border-[#222633] p-3 flex items-center justify-between gap-3">
@@ -511,13 +567,10 @@ export default function ConnectTab({
         {/* 2. Client Presets */}
         <section className="rounded-xl bg-[#111319] border border-[#222633] p-5 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-semibold text-[#eceef4] flex items-center gap-2">
-                <Terminal size={15} className="text-[#4f8cff]" />
-                <span>{t.presetsTitle}</span>
-              </h3>
-              <p className="text-xs text-[#8e95a8] mt-0.5">{t.presetsSubtitle}</p>
-            </div>
+            <h3 className="text-sm font-semibold text-[#eceef4] flex items-center gap-2">
+              <Terminal size={15} className="text-[#4f8cff]" />
+              <span>{t.presetsTitle}</span>
+            </h3>
 
             {needsOsToggle ? (
               <div className="inline-flex items-center rounded-lg bg-[#0d0f14] border border-[#222633] p-0.5 self-start">
@@ -559,7 +612,7 @@ export default function ConnectTab({
               <span className="text-xs font-mono text-[#8e95a8] truncate">{snippet.hint || client}</span>
               <CopyButton value={snippet.code} copyLabel={t.copyBtn} copiedLabel={t.copied} />
             </div>
-            <pre className="p-4 text-xs font-mono text-[#d9dde8] overflow-x-auto leading-relaxed custom-scrollbar select-all">
+            <pre className="p-4 text-xs font-mono text-[#d9dde8] overflow-x-auto leading-relaxed custom-scrollbar select-text">
               {snippet.code}
             </pre>
           </div>
@@ -568,13 +621,10 @@ export default function ConnectTab({
         {/* 3. API Keys & Projects */}
         <section className="rounded-xl bg-[#111319] border border-[#222633] p-5 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-semibold text-[#eceef4] flex items-center gap-2">
-                <Key size={15} className="text-[#4f8cff]" />
-                <span>{t.keysTitle}</span>
-              </h3>
-              <p className="text-xs text-[#8e95a8] mt-0.5">{t.keysSubtitle}</p>
-            </div>
+            <h3 className="text-sm font-semibold text-[#eceef4] flex items-center gap-2">
+              <Key size={15} className="text-[#4f8cff]" />
+              <span>{t.keysTitle}</span>
+            </h3>
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -827,12 +877,25 @@ export default function ConnectTab({
         {/* 4. Google Session Cookies */}
         <section className="rounded-xl bg-[#111319] border border-[#222633] p-5 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
+            <div className="flex items-center gap-2">
               <h3 className="text-sm font-semibold text-[#eceef4] flex items-center gap-2">
                 <Cookie size={15} className="text-[#4f8cff]" />
                 <span>{t.cookiesTitle}</span>
               </h3>
-              <p className="text-xs text-[#8e95a8] mt-0.5">{t.cookiesSubtitle}</p>
+              {howToDismissed || savedHintDismissed ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHowToDismissed(false);
+                    setSavedHintDismissed(false);
+                  }}
+                  title={t.cookiesHowToTitle}
+                  aria-label={t.cookiesHowToTitle}
+                  className="text-[#8e95a8] hover:text-[#eceef4] p-0.5 rounded transition-colors"
+                >
+                  <HelpCircle size={14} />
+                </button>
+              ) : null}
             </div>
             {cookieStatus ? (
               <span
@@ -846,10 +909,20 @@ export default function ConnectTab({
             ) : null}
           </div>
 
-          <div className="rounded-lg bg-[#0d0f14] border border-[#222633] p-3 text-xs text-[#8e95a8] leading-relaxed">
-            <strong className="text-[#eceef4] font-medium">{t.cookiesHowToTitle}: </strong>
-            {t.cookiesHowToSteps}
-          </div>
+          {!howToDismissed ? (
+            <div className="rounded-lg bg-[#0d0f14] border border-[#222633] p-3 pr-8 text-xs text-[#8e95a8] leading-relaxed relative">
+              <strong className="text-[#eceef4] font-medium">{t.cookiesHowToTitle}: </strong>
+              {t.cookiesHowToSteps}
+              <button
+                type="button"
+                onClick={() => setHowToDismissed(true)}
+                aria-label={t.btnCancel}
+                className="absolute top-2.5 right-2.5 text-[#8e95a8] hover:text-[#eceef4] p-0.5 rounded transition-colors"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          ) : null}
 
           {cookieStatus?.cookies && Object.keys(cookieStatus.cookies).length > 0 ? (
             <div className="flex flex-wrap gap-1.5">
@@ -874,12 +947,9 @@ export default function ConnectTab({
           {/* Multi-Account Switcher */}
           <div className="rounded-lg bg-[#0d0f14] border border-[#222633] p-3.5 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <div className="text-xs font-medium text-[#eceef4] flex items-center gap-1.5">
-                  <User size={13} className="text-[#4f8cff]" />
-                  <span>{t.accountsTitle}</span>
-                </div>
-                <p className="text-[11px] text-[#8e95a8] mt-0.5">{t.accountsSubtitle}</p>
+              <div className="text-xs font-medium text-[#eceef4] flex items-center gap-1.5">
+                <User size={13} className="text-[#4f8cff]" />
+                <span>{t.accountsTitle}</span>
               </div>
               <button
                 type="button"
@@ -991,18 +1061,15 @@ export default function ConnectTab({
               }`}
             />
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2.5">
-                <button
-                  type="button"
-                  disabled={isSavingCookie}
-                  onClick={() => cookieFileInputRef.current?.click()}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#171a22] hover:bg-[#222633] border border-[#222633] text-xs font-medium text-[#c5cbe0] hover:text-white transition-colors disabled:opacity-40"
-                >
-                  <Upload size={13} />
-                  <span>{t.btnUploadCookieFile}</span>
-                </button>
-                <span className="text-[11px] text-[#8e95a8]">{t.cookieSavedHint}</span>
-              </div>
+              <button
+                type="button"
+                disabled={isSavingCookie}
+                onClick={() => cookieFileInputRef.current?.click()}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#171a22] hover:bg-[#222633] border border-[#222633] text-xs font-medium text-[#c5cbe0] hover:text-white transition-colors disabled:opacity-40"
+              >
+                <Upload size={13} />
+                <span>{t.btnUploadCookieFile}</span>
+              </button>
               <button
                 type="button"
                 disabled={isSavingCookie || !cookieInput.trim()}
@@ -1013,6 +1080,20 @@ export default function ConnectTab({
                 <span>{isSavingCookie ? t.btnCheckingCookies : t.btnSaveCookies}</span>
               </button>
             </div>
+
+            {!savedHintDismissed ? (
+              <div className="flex items-center justify-between gap-2 rounded-lg bg-[#0d0f14] border border-[#222633] px-3 py-2 text-[11px] text-[#8e95a8]">
+                <span>{t.cookieSavedHint}</span>
+                <button
+                  type="button"
+                  onClick={() => setSavedHintDismissed(true)}
+                  aria-label={t.btnCancel}
+                  className="text-[#8e95a8] hover:text-[#eceef4] p-0.5 rounded transition-colors shrink-0"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ) : null}
 
             {cookieFeedback ? (
               <div

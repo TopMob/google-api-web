@@ -1,6 +1,12 @@
 import fs from "fs";
 import path from "path";
-import { loadCookie, testGeminiConnection, parseAndValidateCookie, clearCookieDiscoveryCache } from "./cookie.js";
+import {
+  loadCookie,
+  testGeminiConnection,
+  isCookieValidCached,
+  parseAndValidateCookie,
+  clearCookieDiscoveryCache
+} from "./cookie.js";
 import { logger } from "../logger.js";
 
 /**
@@ -120,7 +126,7 @@ export async function getCookieStatus(): Promise<{
 
   let isValid: boolean | null = null;
   if (loaded.cookieStr) {
-    isValid = await testGeminiConnection(loaded.cookieStr, loaded.sapisid);
+    isValid = await isCookieValidCached(loaded.cookieStr, loaded.sapisid);
   }
 
   // Generate bookmarklet for extracting cookies from browser

@@ -6,7 +6,6 @@ import {
   makeSapisidHash,
   parseRawCookieString,
   getGeminiSessionInfo,
-  invalidateGeminiSessionCache,
   applyRotatedCookies,
   recordResponseSetCookies
 } from "../utils/cookie.js";
@@ -15,7 +14,7 @@ import { detectBardErrorInfo, extractResponseText } from "../utils/parsers.js";
 import { UpstreamRejectedError } from "../utils/errors.js";
 import { logger } from "../logger.js";
 
-const STREAM_IDLE_TIMEOUT_MS = 90_000;
+const STREAM_IDLE_TIMEOUT_MS = 60_000;
 let reqIdCounter = Math.floor(Date.now() / 1000) % 1000000;
 
 function nextReqId(): number {
@@ -125,7 +124,8 @@ export async function buildGeminiRequest(
   thinkMode: number,
   customCookie?: string,
   fileRefs?: string[],
-  temporaryChats = TEMPORARY_CHATS
+  temporaryChats = TEMPORARY_CHATS,
+  forceRefreshSession = false
 ): Promise<{ url: string; headers: Record<string, string>; body: string }> {
   let cookieStr = "";
   let sapisid: string | null = null;
@@ -144,10 +144,13 @@ export async function buildGeminiRequest(
     activeAuthUser = store.getAuthUser();
   }
 
-  // Get dynamic build label and SNlM0e token for active Google account
-  const sessionInfo = await getGeminiSessionInfo(cookieStr, sapisid, activeAuthUser);
+  const sessionInfo = await getGeminiSessionInfo(cookieStr, sapisid, activeAuthUser, forceRefreshSession);
   const bl = sessionInfo.bl || GEMINI_BL;
   const sn = sessionInfo.sn;
+
+  if (!sn) {
+    throw new Error("Session token (SNlM0e) unavailable — Gemini connection failed or cookies expired");
+  }
 
   const payloadStr = new GeminiPayloadBuilder()
     .setPrompt(prompt, fileRefs)
@@ -161,9 +164,7 @@ export async function buildGeminiRequest(
 
   const bodyParams = new URLSearchParams();
   bodyParams.append("f.req", payloadStr);
-  if (sn) {
-    bodyParams.append("at", sn);
-  }
+  bodyParams.append("at", sn);
 
   const reqid = nextReqId();
   const prefix = activeAuthUser && activeAuthUser !== "0" ? `/u/${activeAuthUser}` : "";
@@ -215,7 +216,8 @@ export async function geminiStreamGenerate(
       thinkMode,
       customCookie,
       fileRefs,
-      temporaryChats
+      temporaryChats,
+      emptyAttempt === 1
     );
 
     const response = await fetchWithRetry(
@@ -224,10 +226,9 @@ export async function geminiStreamGenerate(
         method: "POST",
         headers,
         body,
-        keepalive: true,
         signal
       },
-      { maxRetries: RETRY_ATTEMPTS }
+      { maxRetries: RETRY_ATTEMPTS, timeoutMs: 60000 }
     );
     recordResponseSetCookies(response);
 
@@ -240,10 +241,54 @@ export async function geminiStreamGenerate(
       let fullOutput = "";
       let isCompleted = false;
 
+      const checkChunkLine = (line: string) => {
+        const bardCode = detectBardErrorInfo(line);
+        if (bardCode) {
+          throw new UpstreamRejectedError(`Gemini upstream rejected request: BardErrorInfo [${bardCode}]`, bardCode);
+        }
+        if (line.includes('["di",') || line.includes('["e",') || line.includes('"af.httprm"')) {
+          isCompleted = true;
+          return;
+        }
+        if (line.includes('"wrb.fr"') && line.length > 50) {
+          try {
+            const innerStr = JSON.parse(line)[0][2];
+            if (innerStr) {
+              const inner = JSON.parse(innerStr);
+              const candidates = [inner[4], inner[0]].filter(Boolean);
+              for (const candidate of candidates) {
+                if (Array.isArray(candidate)) {
+                  for (const part of candidate) {
+                    if (Array.isArray(part) && Array.isArray(part[8]) && part[8].includes(2)) {
+                      isCompleted = true;
+                      break;
+                    }
+                  }
+                }
+                if (isCompleted) break;
+              }
+            }
+          } catch {}
+        }
+      };
+
       try {
         while (!isCompleted) {
           const { done, value } = await readChunkWithTimeout(reader, STREAM_IDLE_TIMEOUT_MS, signal);
-          if (done) break;
+          if (done) {
+            const flushed = decoder.decode();
+            if (flushed) {
+              fullOutput += flushed;
+              buffer += flushed;
+            }
+            if (buffer.trim()) {
+              for (const tailLine of buffer.split("\n")) {
+                if (isCompleted) break;
+                checkChunkLine(tailLine);
+              }
+            }
+            break;
+          }
 
           const textChunk = decoder.decode(value, { stream: true });
           fullOutput += textChunk;
@@ -252,37 +297,7 @@ export async function geminiStreamGenerate(
           buffer = lines.pop() || "";
 
           for (const line of lines) {
-            const bardCode = detectBardErrorInfo(line);
-            if (bardCode) {
-              throw new UpstreamRejectedError(
-                `Gemini upstream rejected request: BardErrorInfo [${bardCode}]`,
-                bardCode
-              );
-            }
-            if (line.includes('["di",') || line.includes('["e",') || line.includes('"af.httprm"')) {
-              isCompleted = true;
-              break;
-            }
-            if (line.includes('"wrb.fr"') && line.length > 50) {
-              try {
-                const innerStr = JSON.parse(line)[0][2];
-                if (innerStr) {
-                  const inner = JSON.parse(innerStr);
-                  const candidates = [inner[4], inner[0]].filter(Boolean);
-                  for (const candidate of candidates) {
-                    if (Array.isArray(candidate)) {
-                      for (const part of candidate) {
-                        if (Array.isArray(part) && Array.isArray(part[8]) && part[8].includes(2)) {
-                          isCompleted = true;
-                          break;
-                        }
-                      }
-                    }
-                    if (isCompleted) break;
-                  }
-                }
-              } catch {}
-            }
+            checkChunkLine(line);
             if (isCompleted) break;
           }
         }
@@ -300,11 +315,7 @@ export async function geminiStreamGenerate(
     }
 
     if (emptyAttempt < maxEmptyRetries) {
-      invalidateGeminiSessionCache();
-      logger.warn(
-        { attempt: emptyAttempt + 1, maxEmptyRetries },
-        "Upstream returned empty response, invalidating session cache and retrying..."
-      );
+      logger.warn({ attempt: emptyAttempt + 1, maxEmptyRetries }, "Upstream returned empty response, retrying...");
       await new Promise((resolve) => setTimeout(resolve, 300 * (emptyAttempt + 1)));
     }
   }

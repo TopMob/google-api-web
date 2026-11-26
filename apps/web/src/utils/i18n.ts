@@ -17,6 +17,7 @@ export const translations = {
     statusOffline: "Не в сети",
     statusChecking: "Проверка...",
     cookieOk: "Активна",
+    cookieExpired: "Истекли",
     cookieMissing: "Не заданы",
 
     // Header
@@ -52,6 +53,14 @@ export const translations = {
     removeImageTooltip: "Удалить изображение",
     copyCode: "Копировать",
     copied: "Скопировано",
+    copyMessage: "Копировать сообщение",
+    btnExpand: "Расширить",
+    btnCollapse: "Свернуть",
+    chatModeTemp: "Временный чат (не сохраняется в Google)",
+    chatModeSaved: "Сохранять в аккаунт Google",
+    chatModeShortTemp: "Временный",
+    chatModeShortSaved: "В аккаунт",
+    chatModeToggleHint: "Переключить сохранение диалога в историю Google-аккаунта",
 
     // Connect Tab
     connectTitle: "Параметры подключения",
@@ -164,6 +173,7 @@ export const translations = {
     statusOffline: "Offline",
     statusChecking: "Checking...",
     cookieOk: "Verified",
+    cookieExpired: "Expired",
     cookieMissing: "Missing",
 
     // Header
@@ -199,6 +209,14 @@ export const translations = {
     removeImageTooltip: "Remove image",
     copyCode: "Copy",
     copied: "Copied",
+    copyMessage: "Copy message",
+    btnExpand: "Expand",
+    btnCollapse: "Collapse",
+    chatModeTemp: "Temporary chat (not saved to Google)",
+    chatModeSaved: "Save to Google account",
+    chatModeShortTemp: "Temporary",
+    chatModeShortSaved: "Saved",
+    chatModeToggleHint: "Toggle saving chats to your Google account history",
 
     // Connect Tab
     connectTitle: "Connection Endpoints",

@@ -39,25 +39,87 @@ const SESSION_INFO_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const cachedAccounts: Map<string, { accounts: GoogleAccountInfo[]; timestamp: number }> = new Map();
 const ACCOUNTS_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
+const ROTATED_COOKIE_NAMES = new Set([
+  "__Secure-1PSID",
+  "__Secure-1PSIDTS",
+  "__Secure-1PSIDCC",
+  "__Secure-3PSID",
+  "__Secure-3PSIDTS",
+  "__Secure-3PSIDCC",
+  "__Secure-1PAPISID",
+  "__Secure-3PAPISID",
+  "SAPISID",
+  "APISID",
+  "SID",
+  "SIDCC",
+  "HSID",
+  "SSID",
+  "NID"
+]);
+
+function persistRotatedCookiesToFile(filePath: string): void {
+  if (!filePath || path.basename(filePath).toLowerCase() !== "cookie.txt") return;
+  try {
+    if (!fs.existsSync(filePath)) return;
+    const raw = fs.readFileSync(filePath, "utf-8");
+    const parsed = parseRawCookieString(raw);
+    if (!parsed.cookieStr) return;
+
+    let updated = false;
+    for (const [k, v] of rotatedCookiesOverlay.entries()) {
+      if (parsed.cookiesObj[k] !== v) {
+        parsed.cookiesObj[k] = v;
+        updated = true;
+      }
+    }
+    if (!updated) return;
+
+    const rebuilt = buildCookieResult(parsed.cookiesObj);
+    fs.writeFileSync(filePath, rebuilt.cookieStr, "utf-8");
+    const stat = fs.statSync(filePath);
+    cachedCookie = {
+      cookieStr: rebuilt.cookieStr,
+      sapisid: rebuilt.sapisid,
+      timestamp: Date.now(),
+      filePath,
+      mtimeMs: stat.mtimeMs
+    };
+  } catch (e) {
+    logger.debug({ err: e }, "Failed to persist rotated cookies to cookie.txt");
+  }
+}
+
+function getSessionIdentityKey(cookieStr: string): string {
+  const parsed = parseRawCookieString(cookieStr);
+  const psid = parsed.cookiesObj["__Secure-1PSID"] || "";
+  const sid = parsed.cookiesObj["SID"] || "";
+  const identity = psid || sid ? `${psid}|${sid}` : cookieStr;
+  return crypto.createHash("sha256").update(identity).digest("hex");
+}
+
 export function recordResponseSetCookies(response: Response): void {
   try {
     const getSetCookie = (response.headers as any)?.getSetCookie;
     const setCookies: string[] = typeof getSetCookie === "function" ? getSetCookie.call(response.headers) : [];
+    let changed = false;
+
     for (const sc of setCookies) {
       const firstPart = sc.split(";")[0];
       const eqIdx = firstPart.indexOf("=");
       if (eqIdx > 0) {
         const name = firstPart.slice(0, eqIdx).trim();
         const val = firstPart.slice(eqIdx + 1).trim();
-        if (
-          name &&
-          val &&
-          val !== "deleted" &&
-          (name.startsWith("__Secure-1PSID") || name.startsWith("__Secure-3PSID") || name === "NID")
-        ) {
-          rotatedCookiesOverlay.set(name, val);
+        if (name && val && val !== "deleted" && ROTATED_COOKIE_NAMES.has(name)) {
+          if (rotatedCookiesOverlay.get(name) !== val) {
+            rotatedCookiesOverlay.set(name, val);
+            changed = true;
+          }
         }
       }
+    }
+
+    if (changed && !GEMINI_COOKIE && cachedCookie?.filePath) {
+      persistRotatedCookiesToFile(cachedCookie.filePath);
     }
   } catch {}
 }
@@ -351,7 +413,7 @@ export function loadCookie(): { cookieStr: string; sapisid: string | null } {
     cachedCookie.mtimeMs === candidates[0].mtimeMs &&
     now - cachedCookie.timestamp < COOKIE_FILE_TTL_MS
   ) {
-    return { cookieStr: cachedCookie.cookieStr, sapisid: cachedCookie.sapisid };
+    return applyRotatedCookies(cachedCookie.cookieStr);
   }
 
   for (const candidate of candidates) {
@@ -366,7 +428,7 @@ export function loadCookie(): { cookieStr: string; sapisid: string | null } {
           filePath: candidate.filePath,
           mtimeMs: candidate.mtimeMs
         };
-        return { cookieStr: parsed.cookieStr, sapisid: parsed.sapisid };
+        return applyRotatedCookies(parsed.cookieStr);
       }
     } catch (e) {
       logger.error({ err: e }, `Failed to read cookie file at ${candidate.filePath}`);
@@ -412,24 +474,27 @@ export function parseAndValidateCookie(key: string): { valid: boolean; data?: Ge
   };
 }
 
-export function invalidateGeminiSessionCache() {
-  cachedSessionInfo.clear();
+export function invalidateGeminiSessionCache(cookieStr?: string, authUser?: string) {
+  if (!cookieStr) {
+    cachedSessionInfo.clear();
+    return;
+  }
+  const effectiveAuthUser = authUser ?? store.getAuthUser();
+  cachedSessionInfo.delete(`${getSessionIdentityKey(cookieStr)}:${effectiveAuthUser}`);
 }
 
-/**
- * Fetch dynamic session info (BL build identifier, SNlM0e auth token, email, avatar) from Gemini app page.
- */
-export async function getGeminiSessionInfo(
+async function fetchGeminiSessionInfoDetailed(
   cookieStr: string,
   sapisid: string | null,
-  authUser?: string
-): Promise<{ bl: string; sn: string; email: string | null; avatarUrl: string | null }> {
+  authUser?: string,
+  forceRefresh = false
+): Promise<{ bl: string; sn: string; email: string | null; avatarUrl: string | null; transientError?: boolean }> {
   const effectiveAuthUser = authUser ?? store.getAuthUser();
-  const cacheKey = `${crypto.createHash("sha256").update(cookieStr).digest("hex")}:${effectiveAuthUser}`;
+  const cacheKey = `${getSessionIdentityKey(cookieStr)}:${effectiveAuthUser}`;
   const cached = cachedSessionInfo.get(cacheKey);
   const now = Date.now();
 
-  if (cached && now - cached.timestamp < SESSION_INFO_TTL_MS) {
+  if (!forceRefresh && cached && now - cached.timestamp < SESSION_INFO_TTL_MS) {
     return { bl: cached.bl, sn: cached.sn, email: cached.email, avatarUrl: cached.avatarUrl };
   }
 
@@ -455,7 +520,7 @@ export async function getGeminiSessionInfo(
       const res = await fetchWithRetry(
         `https://gemini.google.com${prefix}/app`,
         { method: "GET", headers },
-        { maxRetries: 2, timeoutMs: 15000 }
+        { maxRetries: 1, timeoutMs: 8000 }
       );
       recordResponseSetCookies(res);
       const html = await res.text();
@@ -472,10 +537,19 @@ export async function getGeminiSessionInfo(
       if (sn) {
         cachedSessionInfo.set(cacheKey, { bl, sn, email, avatarUrl, timestamp: Date.now() });
       }
-      return { bl, sn, email, avatarUrl };
+      return { bl, sn, email, avatarUrl, transientError: false };
     } catch (e) {
       logger.error({ err: e }, "Failed to fetch Gemini session info");
-      return { bl: fallbackBl, sn: "", email: null, avatarUrl: null };
+      if (cached?.sn) {
+        return {
+          bl: cached.bl,
+          sn: cached.sn,
+          email: cached.email,
+          avatarUrl: cached.avatarUrl,
+          transientError: true
+        };
+      }
+      return { bl: fallbackBl, sn: "", email: null, avatarUrl: null, transientError: true };
     } finally {
       sessionInfoInFlight.delete(cacheKey);
     }
@@ -483,6 +557,16 @@ export async function getGeminiSessionInfo(
 
   sessionInfoInFlight.set(cacheKey, fetchPromise);
   return fetchPromise;
+}
+
+export async function getGeminiSessionInfo(
+  cookieStr: string,
+  sapisid: string | null,
+  authUser?: string,
+  forceRefresh = false
+): Promise<{ bl: string; sn: string; email: string | null; avatarUrl: string | null }> {
+  const res = await fetchGeminiSessionInfoDetailed(cookieStr, sapisid, authUser, forceRefresh);
+  return { bl: res.bl, sn: res.sn, email: res.email, avatarUrl: res.avatarUrl };
 }
 
 export async function discoverGoogleAccounts(
@@ -498,7 +582,7 @@ export async function discoverGoogleAccounts(
       ? parseRawCookieString(cookieStr).sapisid
       : (sapisidOrForce ?? parseRawCookieString(cookieStr).sapisid);
 
-  const cookieHash = crypto.createHash("sha256").update(cookieStr).digest("hex");
+  const cookieHash = getSessionIdentityKey(cookieStr);
   const now = Date.now();
 
   if (!force) {
@@ -515,17 +599,25 @@ export async function discoverGoogleAccounts(
   const accounts: GoogleAccountInfo[] = [];
   const maxAccounts = 6;
 
-  for (let i = 0; i < maxAccounts; i++) {
-    const idx = String(i);
-    const info = await getGeminiSessionInfo(cookieStr, sapisid, idx);
-    if (!info.sn || info.sn.length <= 5) {
-      break;
+  const batchSize = 3;
+  for (let start = 0; start < maxAccounts; start += batchSize) {
+    const end = Math.min(start + batchSize, maxAccounts);
+    const batch = Array.from({ length: end - start }, (_, j) => String(start + j));
+    const results = await Promise.allSettled(batch.map((idx) => getGeminiSessionInfo(cookieStr, sapisid, idx)));
+    let hitEmpty = false;
+    for (let j = 0; j < results.length; j++) {
+      const r = results[j];
+      if (r.status !== "fulfilled" || !r.value.sn || r.value.sn.length <= 5) {
+        hitEmpty = true;
+        break;
+      }
+      accounts.push({
+        index: batch[j],
+        email: r.value.email,
+        avatarUrl: r.value.avatarUrl
+      });
     }
-    accounts.push({
-      index: idx,
-      email: info.email,
-      avatarUrl: info.avatarUrl
-    });
+    if (hitEmpty) break;
   }
 
   cachedAccounts.set(cookieHash, { accounts, timestamp: now });
@@ -550,7 +642,7 @@ const cookieValidationCache = new Map<string, { isValid: boolean; timestamp: num
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
 export async function isCookieValidCached(cookieStr: string, sapisid: string | null): Promise<boolean> {
-  const cacheKey = `${crypto.createHash("sha256").update(cookieStr).digest("hex")}:${store.getAuthUser()}`;
+  const cacheKey = `${getSessionIdentityKey(cookieStr)}:${store.getAuthUser()}`;
   const cached = cookieValidationCache.get(cacheKey);
   const now = Date.now();
 
@@ -558,11 +650,16 @@ export async function isCookieValidCached(cookieStr: string, sapisid: string | n
     return cached.isValid;
   }
 
-  const isValid = await testGeminiConnection(cookieStr, sapisid);
+  const sessionInfo = await fetchGeminiSessionInfoDetailed(cookieStr, sapisid);
+  const isValid = !!(sessionInfo.sn && sessionInfo.sn.length > 5);
   if (isValid) {
-    cookieValidationCache.set(cacheKey, { isValid, timestamp: now });
-  } else {
-    cookieValidationCache.set(cacheKey, { isValid, timestamp: now - CACHE_TTL_MS + 10000 });
+    cookieValidationCache.set(cacheKey, { isValid: true, timestamp: now });
+    return true;
   }
-  return isValid;
+  if (sessionInfo.transientError && cached?.isValid) {
+    cookieValidationCache.set(cacheKey, { isValid: true, timestamp: now - CACHE_TTL_MS + 30000 });
+    return true;
+  }
+  cookieValidationCache.set(cacheKey, { isValid: false, timestamp: now - CACHE_TTL_MS + 10000 });
+  return false;
 }

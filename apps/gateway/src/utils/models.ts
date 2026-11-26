@@ -108,7 +108,7 @@ async function fetchModelsFromGemini(
     const res = await fetchWithRetry(
       `https://gemini.google.com${prefix}/app`,
       { method: "GET", headers },
-      { maxRetries: 2, timeoutMs: 12000 }
+      { maxRetries: 1, timeoutMs: 8000 }
     );
     const html = await res.text();
     const parsed = parseModelsFromHtml(html);

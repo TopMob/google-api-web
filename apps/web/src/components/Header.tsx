@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { RefreshCw, MessageSquare, Plug, Activity } from "lucide-react";
+import { RefreshCw, MessageSquare, Plug, Activity, Trash2, EyeOff, History } from "lucide-react";
 import { translations, Language } from "../utils/i18n";
 import { TabType } from "./Sidebar";
 
@@ -13,6 +13,12 @@ interface HeaderProps {
   fetchModels: () => Promise<void>;
   thinkDepth: "auto" | "0" | "4";
   setThinkDepth: (depth: "auto" | "0" | "4") => void;
+  temporaryChats: boolean;
+  canToggleTemporaryChats: boolean;
+  onToggleTemporaryChats: () => void;
+  hasMessages: boolean;
+  isLoading: boolean;
+  onClearChat: () => void;
   lang: Language;
 }
 
@@ -24,6 +30,12 @@ export default function Header({
   fetchModels,
   thinkDepth,
   setThinkDepth,
+  temporaryChats,
+  canToggleTemporaryChats,
+  onToggleTemporaryChats,
+  hasMessages,
+  isLoading,
+  onClearChat,
   lang
 }: HeaderProps) {
   const t = translations[lang];
@@ -56,8 +68,43 @@ export default function Header({
         <h2 className="text-sm font-semibold text-[#eceef4] truncate">{tabMeta.label}</h2>
       </div>
 
-      {/* Model & Think controls (single canonical place, no duplicate copy buttons) */}
+      {/* Chat actions + Model & Think controls */}
       <div className="flex items-center gap-2 min-w-0">
+        {activeTab === "chat" ? (
+          <>
+            <button
+              type="button"
+              onClick={onToggleTemporaryChats}
+              disabled={!canToggleTemporaryChats}
+              title={temporaryChats ? t.chatModeTemp : t.chatModeSaved}
+              aria-label={temporaryChats ? t.chatModeTemp : t.chatModeSaved}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors disabled:opacity-50 whitespace-nowrap ${
+                temporaryChats
+                  ? "bg-[#4f8cff]/10 border-[#4f8cff]/35 text-[#9ec2ff] hover:bg-[#4f8cff]/15"
+                  : "bg-[#171a22] border-[#222633] text-[#c5cbe0] hover:border-[#363d52] hover:text-white"
+              }`}
+            >
+              {temporaryChats ? <EyeOff size={13} /> : <History size={13} />}
+              <span className="hidden lg:inline">{temporaryChats ? t.chatModeShortTemp : t.chatModeShortSaved}</span>
+            </button>
+
+            {hasMessages && !isLoading ? (
+              <button
+                type="button"
+                onClick={onClearChat}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#171a22] hover:bg-rose-500/15 border border-[#222633] hover:border-rose-500/30 text-xs font-medium text-[#8e95a8] hover:text-rose-300 transition-colors whitespace-nowrap"
+                title={t.btnClearChat}
+                aria-label={t.btnClearChat}
+              >
+                <Trash2 size={13} />
+                <span className="hidden lg:inline">{t.btnClearChat}</span>
+              </button>
+            ) : null}
+
+            <div className="h-4 w-px bg-[#222633] hidden sm:block" />
+          </>
+        ) : null}
+
         <label htmlFor="model-selector" className="hidden sm:inline text-xs text-[#8e95a8]">
           {t.modelLabel}
         </label>

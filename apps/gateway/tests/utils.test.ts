@@ -10,7 +10,13 @@ import {
   messagesToPrompt,
   cleanJsonResponse
 } from "../src/utils/parsers.js";
-import { parseAndValidateCookie, loadCookie, clearCookieDiscoveryCache } from "../src/utils/cookie.js";
+import {
+  parseAndValidateCookie,
+  loadCookie,
+  clearCookieDiscoveryCache,
+  recordResponseSetCookies,
+  isCookieValidCached
+} from "../src/utils/cookie.js";
 import { chatCompletionSchema } from "../src/utils/schemas.js";
 
 describe("Schema Utilities", () => {
@@ -193,6 +199,86 @@ describe("Cookie Utilities", () => {
       process.chdir(prevCwd);
       clearCookieDiscoveryCache();
       fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("should apply and persist rotated Set-Cookie updates into cookie.txt and loadCookie()", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gw-cookie-rotate-"));
+    const cookiesDir = path.join(tmpDir, "cookies");
+    fs.mkdirSync(cookiesDir, { recursive: true });
+    const prevCwd = process.cwd();
+
+    try {
+      const cookieFile = path.join(cookiesDir, "cookie.txt");
+      fs.writeFileSync(cookieFile, "__Secure-1PSID=psid_1; __Secure-1PSIDTS=old_ts; SAPISID=sap_1", "utf-8");
+
+      process.chdir(tmpDir);
+      clearCookieDiscoveryCache();
+      expect(loadCookie().cookieStr).toContain("__Secure-1PSIDTS=old_ts");
+
+      const fakeRes = {
+        headers: {
+          getSetCookie: () => ["__Secure-1PSIDTS=new_ts; Path=/; Secure; HttpOnly"]
+        }
+      } as unknown as Response;
+
+      recordResponseSetCookies(fakeRes);
+
+      const reloaded = loadCookie();
+      expect(reloaded.cookieStr).toContain("__Secure-1PSIDTS=new_ts");
+      expect(fs.readFileSync(cookieFile, "utf-8")).toContain("__Secure-1PSIDTS=new_ts");
+    } finally {
+      process.chdir(prevCwd);
+      clearCookieDiscoveryCache();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("should keep session and validation cache across routine cookie rotation", async () => {
+    clearCookieDiscoveryCache();
+    let fetchCalls = 0;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      fetchCalls++;
+      return new Response('"SNlM0e":"stable_sn"', { status: 200 });
+    });
+
+    try {
+      const c1 = "__Secure-1PSID=psid_rot_test; __Secure-1PSIDCC=cc_1; NID=nid_1; SAPISID=sap_1";
+      const c2 = "__Secure-1PSID=psid_rot_test; __Secure-1PSIDCC=cc_2; NID=nid_2; SAPISID=sap_1";
+      expect(await isCookieValidCached(c1, "sap_1")).toBe(true);
+      expect(await isCookieValidCached(c2, "sap_1")).toBe(true);
+      expect(fetchCalls).toBe(1);
+    } finally {
+      fetchMock.mockRestore();
+      clearCookieDiscoveryCache();
+    }
+  });
+
+  it("should keep cookie valid on transient network errors after an earlier valid check", async () => {
+    clearCookieDiscoveryCache();
+    let callCount = 0;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) {
+        return new Response('"SNlM0e":"valid_sn_token"', { status: 200 });
+      }
+      throw new Error("Transient timeout");
+    });
+
+    try {
+      const cookieStr = "__Secure-1PSID=psid_transient_test; SAPISID=sap_1";
+      expect(await isCookieValidCached(cookieStr, "sap_1")).toBe(true);
+
+      // Force TTL expiration by shifting Date.now forward 6 minutes
+      const nowSpy = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 6 * 60 * 1000);
+      try {
+        expect(await isCookieValidCached(cookieStr, "sap_1")).toBe(true);
+      } finally {
+        nowSpy.mockRestore();
+      }
+    } finally {
+      fetchMock.mockRestore();
+      clearCookieDiscoveryCache();
     }
   });
 });
